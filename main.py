@@ -10,7 +10,7 @@ from routers import search_router, index_router, account_router, multimodal_rout
 from services.milvus_store import check_milvus_health
 import config
 
-title = "Search Service API"
+title = "Power Hub Search API"
 description = """
 Enterprise search API with Milvus vector search, keyword retrieval, and hybrid ranking.
 """
@@ -67,7 +67,7 @@ def health_check():
 @app.get("/api/v1/info")
 def api_info(current_user: str = Depends(get_current_user)):
     return {
-        "message": "Search Service API",
+        "message": "Power Hub Search API",
         "version": version,
         "user": current_user,
     }

@@ -34,9 +34,9 @@ export function LoginPage() {
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
         <div className="brand login-brand">
-          <div className="brand-mark">S</div>
+          <div className="brand-mark">P</div>
           <div>
-            <p className="brand-title">Search Admin</p>
+            <p className="brand-title">Power Hub Search</p>
             <p className="brand-sub">Enterprise search console</p>
           </div>
         </div>
