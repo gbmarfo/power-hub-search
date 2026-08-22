@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+**/__pycache__
+**/*.pyc
+admin/node_modules
+admin/dist
+data
+*.db
+.env
+.env.local
+models/*.pth
+/opt
+*.md
