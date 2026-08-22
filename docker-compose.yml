@@ -18,5 +18,33 @@ services:
       timeout: 20s
       retries: 3
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: power-hub-search:latest
+    container_name: power-hub-search
+    depends_on:
+      milvus:
+        condition: service_healthy
+    environment:
+      # SQLite metadata DB stored on the persistent volume
+      INDEX_DB_URL: sqlite:////data/search.db
+      INDEX_FOLDER_PATH: /data
+      QUERY_CACHE_PATH: /data/cache.pkl
+      MULTIMODAL_UPLOAD_DIR: /data/multimodal
+      # Reach Milvus over the compose network
+      MILVUS_URI: http://milvus:19530
+      # Image+text capable CLIP encoder (default fallback is text-only)
+      CLIP_FALLBACK_MODEL: clip-ViT-B-32
+      JWT_SECRET_KEY: change-me-in-production
+      AUTH_REQUIRED: "true"
+      MULTIMODAL_ENABLED: "true"
+    ports:
+      - "8001:8001"
+    volumes:
+      - app_data:/data
+
 volumes:
   milvus_data:
+  app_data:
