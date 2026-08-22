@@ -8,13 +8,17 @@ from fastapi.staticfiles import StaticFiles
 from auth.authentication import get_current_user
 from routers import search_router, index_router, account_router, multimodal_router
 from services.milvus_store import check_milvus_health
+from database.database import Base, SessionLocal, engine
 import config
 
-title = "Search Service API"
+title = "Power Hub + Search Service API"
 description = """
-Enterprise search API with Milvus vector search, keyword retrieval, and hybrid ranking.
+Power Hub document vault (SharePoint-style) with enterprise search via Milvus,
+keyword retrieval, and hybrid ranking.
 """
-version = "0.2"
+version = "0.3"
+
+Path("./data").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(
     title=title,
@@ -24,7 +28,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
+    allow_origins=config.CORS_ORIGINS
+    + [
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,7 +48,25 @@ if config.MULTIMODAL_ENABLED:
         tags=["Multimodal RAG"],
     )
 
+if config.POWERHUB_ENABLED:
+    from powerhub.routers import auth_router, files_router, shares_router, admin_router
+    import powerhub.models  # noqa: F401
+    from powerhub.seed import seed_powerhub
+
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        try:
+            seed_powerhub(db)
+        except Exception as exc:  # pragma: no cover
+            print(f"Power Hub seed warning: {exc}")
+
+    app.include_router(auth_router.router, prefix="/api/v1/powerhub", tags=["Power Hub"])
+    app.include_router(files_router.router, prefix="/api/v1/powerhub", tags=["Power Hub Files"])
+    app.include_router(shares_router.router, prefix="/api/v1/powerhub", tags=["Power Hub Sharing"])
+    app.include_router(admin_router.router, prefix="/api/v1/powerhub", tags=["Power Hub Admin"])
+
 ADMIN_DIST = Path(__file__).resolve().parent / "admin" / "dist"
+HUB_DIST = Path(__file__).resolve().parent / "powerhub-web" / "dist"
 
 
 @app.get("/health")
@@ -60,6 +86,7 @@ def health_check():
         "status": status,
         "milvus": milvus,
         "multimodal": multimodal,
+        "powerhub": {"enabled": config.POWERHUB_ENABLED},
         "version": version,
     }
 
@@ -67,9 +94,10 @@ def health_check():
 @app.get("/api/v1/info")
 def api_info(current_user: str = Depends(get_current_user)):
     return {
-        "message": "Search Service API",
+        "message": "Power Hub + Search Service API",
         "version": version,
         "user": current_user,
+        "powerhub": config.POWERHUB_ENABLED,
     }
 
 
@@ -88,3 +116,32 @@ if ADMIN_DIST.exists():
     @app.get("/admin")
     async def serve_admin_root():
         return FileResponse(ADMIN_DIST / "index.html")
+
+
+if HUB_DIST.exists():
+    assets_dir = HUB_DIST / "assets"
+    if assets_dir.exists():
+        app.mount("/hub/assets", StaticFiles(directory=assets_dir), name="hub-assets")
+
+    @app.get("/hub/{full_path:path}")
+    async def serve_hub(full_path: str = ""):
+        requested = HUB_DIST / full_path
+        if full_path and requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(HUB_DIST / "index.html")
+
+    @app.get("/hub")
+    async def serve_hub_root():
+        return FileResponse(HUB_DIST / "index.html")
+
+
+@app.get("/")
+def root():
+    if HUB_DIST.exists():
+        return FileResponse(HUB_DIST / "index.html")
+    return {
+        "message": "Power Hub + Search Service",
+        "hub": "/hub",
+        "admin": "/admin",
+        "docs": "/docs",
+    }

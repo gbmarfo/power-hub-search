@@ -23,7 +23,6 @@ def _run_search(
     vector_weight: float = 0.5,
 ) -> list[dict]:
     text_search = TextSearch(index_file=index_id)
-    vector_search = VectorSearch(file_id=index_id, org_id=org_id)
 
     if mode == schemas.SearchMode.ranked_naive:
         return text_search.ranked_search(query)
@@ -35,6 +34,9 @@ def _run_search(
         return text_search.boolean_search(query)
     if mode == schemas.SearchMode.fuzzy:
         return text_search.fuzzy_search(query)
+
+    vector_search = VectorSearch(file_id=index_id, org_id=org_id)
+
     if mode == schemas.SearchMode.similarity:
         return vector_search.similarity_search(
             query,

@@ -6,9 +6,13 @@ load_dotenv()
 BASE_EMBEDDING_MODEL = os.getenv(
     "BASE_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
 )
-INDEX_DB_URL = os.getenv("INDEX_DB_URL")
+INDEX_DB_URL = os.getenv("INDEX_DB_URL", "sqlite:///./data/powerhub.db")
 INDEX_FOLDER_PATH = os.getenv("INDEX_FOLDER_PATH", "./data")
 QUERY_CACHE_PATH = os.getenv("QUERY_CACHE_PATH", "data/cache.pkl")
+
+# Power Hub document vault
+POWERHUB_STORAGE_PATH = os.getenv("POWERHUB_STORAGE_PATH", "./data/powerhub/files")
+POWERHUB_ENABLED = os.getenv("POWERHUB_ENABLED", "true").lower() in ("1", "true", "yes")
 
 MILVUS_URI = os.getenv("MILVUS_URI", "http://localhost:19530")
 MILVUS_USER = os.getenv("MILVUS_USER", "")
@@ -30,7 +34,7 @@ CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:8000",
     ).split(",")
     if origin.strip()
 ]
