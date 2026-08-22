@@ -1,0 +1,10 @@
+admin/node_modules/
+admin/dist/
+__pycache__/
+*.pyc
+.env
+.env.local
+.venv/
+data/
+*.db
+models/*.pth
