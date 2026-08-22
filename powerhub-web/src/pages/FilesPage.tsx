@@ -177,12 +177,27 @@ export function FilesPage() {
       </div>
 
       {showNewFolder && (
-        <div className="modal-backdrop">
-          <form className="modal" onSubmit={createFolder}>
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowNewFolder(false)}
+        >
+          <form
+            className="modal"
+            onSubmit={createFolder}
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3>New folder</h3>
             <div className="field">
-              <label>Name</label>
-              <input value={folderName} onChange={(e) => setFolderName(e.target.value)} required autoFocus />
+              <label htmlFor="new-folder-name">Name</label>
+              <input
+                id="new-folder-name"
+                value={folderName}
+                onChange={(e) => setFolderName(e.target.value)}
+                required
+                autoFocus
+              />
             </div>
             <div className="actions">
               <button className="btn primary" type="submit">Create</button>

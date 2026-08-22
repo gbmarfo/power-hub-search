@@ -14,7 +14,11 @@ export function IndexesPage() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    setIndexes(await api.indexes());
+    const list = await api.indexes();
+    setIndexes(list);
+    if (!selected && list.length) {
+      setSelected(String(list[0].id));
+    }
   }
 
   useEffect(() => {
@@ -80,7 +84,7 @@ export function IndexesPage() {
           </thead>
           <tbody>
             {indexes.map((idx) => (
-              <tr key={idx.id}>
+              <tr key={idx.id} className={selected === idx.id ? "list-row" : undefined}>
                 <td>
                   <strong>{idx.title}</strong>
                   <div className="muted">{idx.description}</div>
@@ -88,8 +92,12 @@ export function IndexesPage() {
                 <td className="mono muted">{idx.search_index_id}</td>
                 <td>{idx.document_count}</td>
                 <td className="actions">
-                  <button className="btn" type="button" onClick={() => setSelected(idx.id)}>
-                    Use
+                  <button
+                    className={`btn ${selected === idx.id ? "primary" : ""}`}
+                    type="button"
+                    onClick={() => setSelected(String(idx.id))}
+                  >
+                    {selected === idx.id ? "Selected" : "Use for search"}
                   </button>
                   {can("indexes.delete") && (
                     <button
@@ -112,22 +120,29 @@ export function IndexesPage() {
         </table>
       </div>
 
-      {selected && (
-        <form className="panel" style={{ marginTop: 16 }} onSubmit={onSearch}>
+      <form className="panel" style={{ marginTop: 16 }} onSubmit={onSearch} id="index-search-panel">
           <h3>Query via power-hub-search</h3>
-          <p className="muted">Selected link: {selected}</p>
+          {!selected ? (
+            <p className="muted">Select an index with “Use for search”, or create one above.</p>
+          ) : (
+            <p className="muted">Selected link: {selected}</p>
+          )}
           <div className="field">
             <label>Query</label>
-            <input value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              disabled={!selected}
+              placeholder={selected ? "Search indexed documents…" : "Select an index first"}
+            />
           </div>
-          <button className="btn primary">Search</button>
+          <button className="btn primary" disabled={!selected}>Search</button>
           {results && (
             <pre style={{ marginTop: 14, whiteSpace: "pre-wrap", fontSize: "0.85rem" }}>
               {JSON.stringify(results, null, 2)}
             </pre>
           )}
         </form>
-      )}
     </div>
   );
 }
