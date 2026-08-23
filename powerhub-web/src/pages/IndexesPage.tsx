@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
@@ -9,24 +9,27 @@ type FolderOption = {
   file_count: number;
 };
 
+type Integration = {
+  search_index_id: string;
+  source: string;
+  registered: boolean;
+  text_index_ready: boolean;
+  vector_index: { exists?: boolean; num_entities?: number };
+  admin_search_url: string;
+  admin_index_url: string;
+  api_search_url: string;
+};
+
 type IndexLink = {
   id: string;
   title: string;
   description?: string;
-  folder_id?: string | null;
   folder_path?: string;
   folder_name?: string;
   search_index_id: string;
   document_count: number;
   updated_at?: string;
-  integration?: {
-    registered: boolean;
-    text_index_ready: boolean;
-    vector_index: { exists?: boolean; num_entities?: number };
-    admin_search_url: string;
-    admin_index_url: string;
-    api_search_url: string;
-  };
+  integration?: Integration;
 };
 
 type SearchResult = {
@@ -36,198 +39,100 @@ type SearchResult = {
   score?: number;
   text?: string;
   download_url?: string;
-  extension?: string;
 };
 
-type View = "search" | "manage";
-
-const MODES = [
-  { value: "similarity", label: "Similarity" },
-  { value: "full_text", label: "Keywords" },
+const SEARCH_MODES = [
+  { value: "similarity", label: "Similarity (vector)" },
+  { value: "full_text", label: "Full text (BM25)" },
   { value: "hybrid", label: "Hybrid" },
-  { value: "ranked_naive", label: "Ranked" },
-] as const;
-
-const SUGGESTIONS = ["checklist", "onboarding", "policy", "report"];
-
-function relTime(value?: string) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const mins = Math.round((Date.now() - d.getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 48) return `${hrs}h ago`;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function snippet(text: string, query: string, max = 160) {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (!query.trim()) return clean.slice(0, max) + (clean.length > max ? "…" : "");
-  const lower = clean.toLowerCase();
-  const q = query.toLowerCase();
-  const idx = lower.indexOf(q);
-  if (idx === -1) return clean.slice(0, max) + (clean.length > max ? "…" : "");
-  const start = Math.max(0, idx - 36);
-  const end = Math.min(clean.length, idx + q.length + 72);
-  return (start > 0 ? "…" : "") + clean.slice(start, end) + (end < clean.length ? "…" : "");
-}
+  { value: "ranked_naive", label: "Ranked naive" },
+];
 
 export function IndexesPage() {
   const { can } = useAuth();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const [view, setView] = useState<View>("search");
   const [indexes, setIndexes] = useState<IndexLink[]>([]);
   const [folders, setFolders] = useState<FolderOption[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const [selected, setSelected] = useState("");
-  const [query, setQuery] = useState("");
+  const [folderId, setFolderId] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [query, setQuery] = useState("checklist");
   const [mode, setMode] = useState("similarity");
+  const [selected, setSelected] = useState<string>("");
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [hasSearched, setHasSearched] = useState(false);
-
+  const [searchMeta, setSearchMeta] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
-  const [searching, setSearching] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
 
-  const [createFolderId, setCreateFolderId] = useState("");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const selectedFolder = useMemo(
+    () => folders.find((f) => f.id === folderId) || null,
+    [folders, folderId],
+  );
 
   const selectedIndex = useMemo(
-    () => indexes.find((i) => i.id === selected) ?? null,
+    () => indexes.find((idx) => idx.id === selected) || null,
     [indexes, selected],
   );
 
-  const indexedFolderIds = useMemo(
-    () => new Set(indexes.map((i) => i.folder_id).filter(Boolean)),
-    [indexes],
-  );
-
-  const availableFolders = useMemo(
-    () => folders.filter((f) => f.file_count > 0 && !indexedFolderIds.has(f.id)),
-    [folders, indexedFolderIds],
-  );
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [list, folderList] = await Promise.all([api.indexes(), api.foldersForIndex()]);
-      const typed = list as IndexLink[];
-      setIndexes(typed);
-      setFolders(folderList as FolderOption[]);
-      setError("");
-      setSelected((prev) => {
-        if (prev && typed.some((i) => i.id === prev)) return prev;
-        return typed[0]?.id ?? "";
-      });
-      const indexed = new Set(typed.map((i) => i.folder_id).filter(Boolean));
-      const nextFolder = (folderList as FolderOption[]).find(
-        (f) => f.file_count > 0 && !indexed.has(f.id),
-      );
-      setCreateFolderId((prev) => prev || nextFolder?.id || "");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
+  async function load() {
+    const [list, folderList] = await Promise.all([
+      api.indexes(),
+      api.foldersForIndex(),
+    ]);
+    setIndexes(list as IndexLink[]);
+    setFolders(folderList as FolderOption[]);
+    if (!selected && list.length) {
+      setSelected(String((list[0] as IndexLink).id));
     }
+    if (!folderId && folderList.length) {
+      const withFiles = (folderList as FolderOption[]).find((f) => f.file_count > 0);
+      setFolderId((withFiles || folderList[0]).id as string);
+    }
+  }
+
+  useEffect(() => {
+    void load().catch((e) => setError(e.message));
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!selectedFolder) return;
+    setTitle((prev) => (prev.trim() ? prev : `${selectedFolder.name} index`));
+    setDescription((prev) =>
+      prev.trim()
+        ? prev
+        : `Search index for files in ${selectedFolder.path} (${selectedFolder.file_count} documents)`,
+    );
+  }, [selectedFolder]);
 
-  const runSearch = useCallback(
-    async (q: string, indexId: string, searchMode: string) => {
-      if (!indexId || !q.trim()) return;
-      setSearching(true);
-      setError("");
-      setHasSearched(true);
-      try {
-        const payload = await api.searchIndex(indexId, q.trim(), searchMode);
-        setResults((payload.results as SearchResult[]) || []);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Search failed");
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    },
-    [],
-  );
-
-  // Re-run when index or mode changes if user already searched
-  const prevSearchCtx = useRef({ selected: "", mode: "" });
-  useEffect(() => {
-    const prev = prevSearchCtx.current;
-    const ctxChanged = prev.selected !== selected || prev.mode !== mode;
-    prevSearchCtx.current = { selected, mode };
-    if (ctxChanged && hasSearched && query.trim() && selected) {
-      void runSearch(query, selected, mode);
+  async function onCreate(e: FormEvent) {
+    e.preventDefault();
+    if (!folderId) {
+      setError("Select a folder to index.");
+      return;
     }
-  }, [selected, mode, hasSearched, query, runSearch]);
-
-  useEffect(() => {
-    if (view === "search" && selected && !loading) {
-      inputRef.current?.focus();
-    }
-  }, [view, selected, loading]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = () => setMenuOpen(false);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [menuOpen]);
-
-  function onSubmitSearch(e?: FormEvent) {
-    e?.preventDefault();
-    void runSearch(query, selected, mode);
-  }
-
-  function pickSuggestion(s: string) {
-    setQuery(s);
-    void runSearch(s, selected, mode);
-  }
-
-  async function quickCreate() {
-    if (!createFolderId) return;
-    const folder = folders.find((f) => f.id === createFolderId);
-    if (!folder) return;
-    setCreating(true);
+    setBusy(true);
     setError("");
     try {
       const link = await api.createIndex({
-        title: `${folder.name} index`,
-        description: `Files in ${folder.path}`,
-        folder_id: createFolderId,
+        title: title || `${selectedFolder?.name || "Folder"} index`,
+        description,
+        folder_id: folderId,
       });
-      await load();
       setSelected(String(link.id));
-      setView("search");
-      setQuery("");
-      setResults([]);
-      setHasSearched(false);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed");
     } finally {
-      setCreating(false);
+      setBusy(false);
     }
   }
 
-  async function onSync(id: string) {
-    setSyncing(id);
+  async function onSync(linkId: string) {
+    setSyncing(linkId);
     setError("");
     try {
-      await api.syncIndex(id);
+      await api.syncIndex(linkId);
       await load();
-      if (hasSearched && query.trim() && selected === id) {
-        void runSearch(query, id, mode);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sync failed");
     } finally {
@@ -235,355 +140,234 @@ export function IndexesPage() {
     }
   }
 
-  async function onDelete(id: string, label: string) {
-    if (!confirm(`Delete “${label}”?`)) return;
-    setMenuOpen(false);
-    try {
-      await api.deleteIndex(id);
-      if (selected === id) {
-        setSelected("");
-        setResults([]);
-        setHasSearched(false);
-      }
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Delete failed");
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="idx-hub">
-        <p className="muted">Loading indexes…</p>
-      </div>
-    );
+  async function onSearch(e: FormEvent) {
+    e.preventDefault();
+    if (!selected) return;
+    setError("");
+    const payload = await api.searchIndex(selected, query, mode);
+    setResults((payload.results as SearchResult[]) || []);
+    setSearchMeta(payload as Record<string, unknown>);
   }
 
   return (
-    <div className="idx-hub">
-      <div className="idx-hub-top">
-        <div>
-          <h1 className="page-title">Search</h1>
-          <p className="page-sub idx-hub-sub">
-            Search indexed vault folders — switch index, type, and go.
-          </p>
-        </div>
-        <div className="idx-segments" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "search"}
-            className={view === "search" ? "active" : ""}
-            onClick={() => setView("search")}
-          >
-            Search
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={view === "manage"}
-            className={view === "manage" ? "active" : ""}
-            onClick={() => setView("manage")}
-          >
-            Manage{indexes.length ? ` (${indexes.length})` : ""}
-          </button>
-        </div>
-      </div>
+    <div>
+      <h1 className="page-title">Search Indexes</h1>
+      <p className="page-sub">
+        Vault indexes are registered in power-hub-search and searchable via the unified search API.
+      </p>
 
-      {error && <div className="error idx-error">{error}</div>}
+      {can("indexes.create") && (
+        <form className="panel" onSubmit={onCreate}>
+          <h3>Create index from folder</h3>
+          <div className="field">
+            <label htmlFor="index-folder">Source folder</label>
+            <select
+              id="index-folder"
+              value={folderId}
+              onChange={(e) => {
+                setFolderId(e.target.value);
+                setTitle("");
+                setDescription("");
+              }}
+              required
+            >
+              <option value="" disabled>
+                Select a folder…
+              </option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id} disabled={folder.file_count === 0}>
+                  {folder.path} ({folder.file_count} file{folder.file_count === 1 ? "" : "s"})
+                </option>
+              ))}
+            </select>
+            {selectedFolder && (
+              <span className="muted">
+                Indexing {selectedFolder.file_count} file
+                {selectedFolder.file_count === 1 ? "" : "s"} under {selectedFolder.path}
+              </span>
+            )}
+          </div>
+          <div className="field">
+            <label>Title</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label>Description</label>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          </div>
+          {error && <div className="error">{error}</div>}
+          <button
+            className="btn primary"
+            disabled={busy || !folderId || (selectedFolder?.file_count ?? 0) === 0}
+          >
+            {busy ? "Indexing…" : "Create search index"}
+          </button>
+        </form>
+      )}
 
-      {view === "search" && (
-        <>
-          {indexes.length === 0 ? (
-            <section className="panel idx-onboard">
-              <h2>Index a folder to start searching</h2>
-              <p className="muted">
-                Pick a vault folder with documents. Indexing usually takes a few seconds.
-              </p>
-              {can("indexes.create") ? (
-                <div className="idx-quick-create">
-                  <select
-                    value={createFolderId}
-                    onChange={(e) => setCreateFolderId(e.target.value)}
-                    aria-label="Folder to index"
-                  >
-                    <option value="" disabled>
-                      Choose folder…
-                    </option>
-                    {folders
-                      .filter((f) => f.file_count > 0)
-                      .map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.path} ({f.file_count} files)
-                        </option>
-                      ))}
-                  </select>
-                  <button
-                    className="btn primary"
-                    type="button"
-                    disabled={creating || !createFolderId}
-                    onClick={() => void quickCreate()}
-                  >
-                    {creating ? "Indexing…" : "Create index & search"}
-                  </button>
-                </div>
-              ) : (
-                <p className="muted">Ask an admin to create a search index.</p>
-              )}
-            </section>
-          ) : (
-            <>
-              <form className="idx-command panel" onSubmit={onSubmitSearch}>
-                <div className="idx-command-row">
-                  <select
-                    className="idx-picker"
-                    value={selected}
-                    onChange={(e) => setSelected(e.target.value)}
-                    aria-label="Search index"
-                  >
-                    {indexes.map((idx) => (
-                      <option key={idx.id} value={idx.id}>
-                        {idx.title} ({idx.document_count})
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    ref={inputRef}
-                    className="idx-query"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search this index…"
-                    aria-label="Search query"
-                  />
-                  <button
-                    className="btn primary idx-go"
-                    type="submit"
-                    disabled={searching || !query.trim() || !selected}
-                  >
-                    {searching ? "…" : "Search"}
-                  </button>
-                </div>
-                <div className="idx-command-meta">
-                  <div className="mode-chips compact" role="group" aria-label="Search mode">
-                    {MODES.map((m) => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        className={`mode-chip${mode === m.value ? " active" : ""}`}
-                        onClick={() => setMode(m.value)}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                  {selectedIndex && (
-                    <div className="idx-context">
-                      <span className="muted">
-                        {selectedIndex.folder_path || selectedIndex.folder_name}
-                        {" · "}
-                        {selectedIndex.document_count} docs
-                        {selectedIndex.updated_at && ` · ${relTime(selectedIndex.updated_at)}`}
-                      </span>
-                      {can("indexes.create") && (
-                        <button
-                          type="button"
-                          className="btn ghost idx-sync-btn"
-                          disabled={syncing === selectedIndex.id}
-                          onClick={() => void onSync(selectedIndex.id)}
-                        >
-                          {syncing === selectedIndex.id ? "Syncing…" : "Sync"}
-                        </button>
-                      )}
-                      <div className="idx-menu-wrap">
-                        <button
-                          type="button"
-                          className="btn ghost idx-menu-btn"
-                          aria-expanded={menuOpen}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setMenuOpen((v) => !v);
-                          }}
-                        >
-                          ⋯
-                        </button>
-                        {menuOpen && (
-                          <div className="idx-menu" onClick={(e) => e.stopPropagation()}>
-                            {selectedIndex.integration && (
-                              <>
-                                <a
-                                  href={selectedIndex.integration.admin_search_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={() => setMenuOpen(false)}
-                                >
-                                  Open in playground
-                                </a>
-                                <a
-                                  href={selectedIndex.integration.admin_index_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={() => setMenuOpen(false)}
-                                >
-                                  Index details
-                                </a>
-                              </>
-                            )}
-                            {can("indexes.delete") && (
-                              <button
-                                type="button"
-                                className="danger"
-                                onClick={() =>
-                                  void onDelete(selectedIndex.id, selectedIndex.title)
-                                }
-                              >
-                                Delete index
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
+      <div className="panel" style={{ marginTop: 16 }}>
+        <h3>Your indexes</h3>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Source folder</th>
+              <th>Integration</th>
+              <th>Documents</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {indexes.map((idx) => {
+              const integration = idx.integration;
+              const vectorOk = integration?.vector_index?.exists;
+              return (
+                <tr key={idx.id} className={selected === idx.id ? "list-row" : undefined}>
+                  <td>
+                    <strong>{idx.title}</strong>
+                    <div className="muted">{idx.description}</div>
+                    <div className="mono muted" style={{ fontSize: "0.75rem" }}>
+                      {idx.search_index_id}
                     </div>
-                  )}
-                </div>
-              </form>
-
-              {!hasSearched && !searching && (
-                <div className="idx-suggestions">
-                  <span className="muted">Try:</span>
-                  {SUGGESTIONS.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className="idx-suggestion"
-                      onClick={() => pickSuggestion(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {searching && (
-                <p className="muted idx-status">Searching…</p>
-              )}
-
-              {hasSearched && !searching && results.length === 0 && (
-                <p className="muted idx-status">
-                  No results for “{query}”. Try another term or mode.
-                </p>
-              )}
-
-              {results.length > 0 && (
-                <ul className="idx-results">
-                  {results.map((hit) => (
-                    <li key={String(hit.id)} className="idx-result">
-                      <div className="idx-result-main">
-                        <a
-                          className="idx-result-title"
-                          href={hit.download_url || "#"}
-                          onClick={(e) => !hit.download_url && e.preventDefault()}
-                        >
-                          {hit.name || hit.id}
-                        </a>
-                        {hit.path && <span className="muted idx-result-path">{hit.path}</span>}
-                        {hit.text && (
-                          <p className="idx-result-snippet">{snippet(hit.text, query)}</p>
-                        )}
-                      </div>
-                      {hit.score != null && (
-                        <span className="idx-result-score">
-                          {Math.round(hit.score * 100)}%
+                  </td>
+                  <td>
+                    <span className="pill">{idx.folder_path || idx.folder_name || "—"}</span>
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span className="pill">
+                        {integration?.registered ? "Registered" : "Missing"}
+                      </span>
+                      <span className="muted" style={{ fontSize: "0.8rem" }}>
+                        Text: {integration?.text_index_ready ? "ready" : "—"} · Vector:{" "}
+                        {vectorOk ? `${integration?.vector_index?.num_entities ?? 0} docs` : "text only"}
+                      </span>
+                      {integration && (
+                        <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <a href={integration.admin_index_url} target="_blank" rel="noreferrer">
+                            Admin detail
+                          </a>
+                          <a href={integration.admin_search_url} target="_blank" rel="noreferrer">
+                            Search playground
+                          </a>
                         </span>
                       )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-        </>
-      )}
-
-      {view === "manage" && (
-        <section className="panel idx-manage">
-          {can("indexes.create") && availableFolders.length > 0 && (
-            <div className="idx-manage-create">
-              <h3>Add index</h3>
-              <div className="idx-quick-create">
-                <select
-                  value={createFolderId}
-                  onChange={(e) => setCreateFolderId(e.target.value)}
-                >
-                  {availableFolders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.path} ({f.file_count} files)
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="btn primary"
-                  type="button"
-                  disabled={creating || !createFolderId}
-                  onClick={() => void quickCreate()}
-                >
-                  {creating ? "Creating…" : "Index folder"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          <h3>Your indexes</h3>
-          {indexes.length === 0 ? (
-            <p className="muted">No indexes yet. Add one above or from the Search tab.</p>
-          ) : (
-            <ul className="idx-manage-list">
-              {indexes.map((idx) => {
-                const vector = idx.integration?.vector_index?.exists;
-                return (
-                  <li key={idx.id} className="idx-manage-row">
-                    <button
-                      type="button"
-                      className="idx-manage-info"
-                      onClick={() => {
-                        setSelected(idx.id);
-                        setView("search");
-                        requestAnimationFrame(() => inputRef.current?.focus());
-                      }}
-                    >
-                      <strong>{idx.title}</strong>
-                      <span className="muted">
-                        {idx.folder_path} · {idx.document_count} docs
-                        {vector ? " · vector" : " · text only"}
-                      </span>
-                    </button>
-                    <div className="idx-manage-actions">
-                      {can("indexes.create") && (
-                        <button
-                          type="button"
-                          className="btn ghost"
-                          disabled={syncing === idx.id}
-                          onClick={() => void onSync(idx.id)}
-                        >
-                          {syncing === idx.id ? "…" : "Sync"}
-                        </button>
-                      )}
-                      {can("indexes.delete") && (
-                        <button
-                          type="button"
-                          className="btn danger"
-                          onClick={() => void onDelete(idx.id, idx.title)}
-                        >
-                          Delete
-                        </button>
-                      )}
                     </div>
-                  </li>
-                );
-              })}
+                  </td>
+                  <td>{idx.document_count}</td>
+                  <td className="actions">
+                    <button
+                      className={`btn ${selected === idx.id ? "primary" : ""}`}
+                      type="button"
+                      onClick={() => setSelected(String(idx.id))}
+                    >
+                      {selected === idx.id ? "Selected" : "Search"}
+                    </button>
+                    {can("indexes.create") && (
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={syncing === idx.id}
+                        onClick={() => void onSync(idx.id)}
+                      >
+                        {syncing === idx.id ? "Syncing…" : "Sync"}
+                      </button>
+                    )}
+                    {can("indexes.delete") && (
+                      <button
+                        className="btn danger"
+                        type="button"
+                        onClick={() => void api.deleteIndex(idx.id).then(load)}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {!indexes.length && (
+              <tr>
+                <td colSpan={5} className="empty">
+                  No indexes yet. Choose a folder above and create one.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <form className="panel" style={{ marginTop: 16 }} onSubmit={onSearch} id="index-search-panel">
+        <h3>Query via power-hub-search</h3>
+        {!selectedIndex ? (
+          <p className="muted">Select an index with “Search”, or create one above.</p>
+        ) : (
+          <p className="muted">
+            Index <strong>{selectedIndex.title}</strong> · API{" "}
+            <code>{selectedIndex.integration?.api_search_url}</code>
+          </p>
+        )}
+        <div className="field">
+          <label>Query</label>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            disabled={!selected}
+            placeholder={selected ? "Search indexed documents…" : "Select an index first"}
+          />
+        </div>
+        <div className="field">
+          <label>Search mode</label>
+          <select value={mode} onChange={(e) => setMode(e.target.value)} disabled={!selected}>
+            {SEARCH_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button className="btn primary" disabled={!selected}>
+          Search
+        </button>
+
+        {results.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <p className="muted">
+              {results.length} result{results.length === 1 ? "" : "s"}
+              {searchMeta?.mode ? ` · mode: ${String(searchMeta.mode)}` : ""}
+            </p>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {results.map((hit) => (
+                <li
+                  key={String(hit.id)}
+                  style={{
+                    padding: "10px 0",
+                    borderBottom: "1px solid var(--border, #e5e7eb)",
+                  }}
+                >
+                  <strong>{hit.name || hit.id}</strong>
+                  {hit.path && <span className="muted"> · {hit.path}</span>}
+                  {hit.score != null && (
+                    <span className="muted"> · score {hit.score.toFixed(3)}</span>
+                  )}
+                  {hit.download_url && (
+                    <>
+                      {" "}
+                      <a href={hit.download_url}>Download</a>
+                    </>
+                  )}
+                  {hit.text && (
+                    <div className="muted" style={{ fontSize: "0.85rem", marginTop: 4 }}>
+                      {(hit.text || "").slice(0, 200)}
+                      {(hit.text || "").length > 200 ? "…" : ""}
+                    </div>
+                  )}
+                </li>
+              ))}
             </ul>
-          )}
-        </section>
-      )}
+          </div>
+        )}
+      </form>
     </div>
   );
 }
