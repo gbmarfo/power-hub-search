@@ -108,7 +108,7 @@ def parse_pdf(data: bytes) -> ParseResult:
                         block_text += span.get("text", "")
                     block_text += "\n"
                 cleaned = block_text.strip()
-                if re.match(r"^(figure|fig\.|table|chart|diagram)\b", cleaned, re.I):
+                if re.match(r"^(figure|fig\.|chart|diagram)\b", cleaned, re.I):
                     result.figures.append(cleaned)
 
             for img_info in page.get_images(full=True):
@@ -191,7 +191,7 @@ def parse_docx(data: bytes) -> ParseResult:
                 if not text:
                     continue
                 style = (para.style.name if para.style is not None else "") or ""
-                if re.match(r"^(figure|fig\.|table|caption)", text, re.I) or "Caption" in style:
+                if re.match(r"^(figure|fig\.|chart|diagram)\b", text, re.I) or "Caption" in style:
                     result.figures.append(text)
                 body_parts.append(text)
             elif child.tag == qn("w:tbl"):

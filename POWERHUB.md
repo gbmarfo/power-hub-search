@@ -48,7 +48,13 @@ Open:
 | maya@aya.collective | maya | Manager!23 | manager |
 | noah@aya.collective | noah | Member!23 | member |
 
-## Search index integration
+## Document parsing (PDF / Word)
+
+On upload and when building a folder search index, Power Hub richly parses:
+
+- **PDF** (`.pdf`): page text (PyMuPDF), structured tables (pdfplumber), figure captions, embedded images + OCR (Tesseract)
+- **Word** (`.docx`): paragraphs, tables, caption-like text, embedded images + OCR
+- Extracted images are stored under `data/powerhub/extracted/<org>/<file_id>/` and their OCR text is included in the searchable `content_text`
 
 From **Search Indexes** in Power Hub:
 
