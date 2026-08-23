@@ -152,6 +152,9 @@ class VaultSettings(Base):
     allow_public_email = Column(Boolean, default=False)
     recycle_retention_days = Column(Integer, default=30)
     storage_quota_bytes = Column(Integer, default=10 * 1024 * 1024 * 1024)
+    default_embedding_model = Column(String, nullable=True)
+    default_chunk_size = Column(Integer, nullable=True)
+    default_chunk_overlap = Column(Integer, nullable=True)
 
 
 class VaultSearchIndexLink(Base):

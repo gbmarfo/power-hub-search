@@ -58,6 +58,19 @@ export type User = {
   capabilities: string[];
 };
 
+export type OrgSettings = {
+  org_id: string;
+  allowed_domains: string;
+  allow_public_email: boolean;
+  recycle_retention_days: number;
+  storage_quota_bytes: number;
+  storage_used_bytes: number;
+  default_embedding_model: string;
+  default_chunk_size: number;
+  default_chunk_overlap: number;
+  embedding_model_choices: string[];
+};
+
 export const api = {
   loginPassword(email: string, password: string) {
     return request<{ access_token: string; user: User }>(
@@ -186,9 +199,16 @@ export const api = {
     return request("/api/v1/powerhub/notifications/read-all", { method: "POST" });
   },
   settings() {
-    return request<Record<string, unknown>>("/api/v1/powerhub/settings");
+    return request<OrgSettings>("/api/v1/powerhub/settings");
   },
-  updateSettings(payload: Record<string, unknown>) {
+  updateSettings(payload: {
+    allowed_domains?: string;
+    allow_public_email?: boolean;
+    recycle_retention_days?: number;
+    default_embedding_model?: string;
+    default_chunk_size?: number;
+    default_chunk_overlap?: number;
+  }) {
     return request("/api/v1/powerhub/settings", {
       method: "PATCH",
       body: JSON.stringify(payload),
@@ -221,6 +241,9 @@ export const api = {
     title: string;
     description?: string;
     folder_id: string;
+    embedding_model?: string;
+    chunk_size?: number;
+    chunk_overlap?: number;
   }) {
     return request<Record<string, unknown>>("/api/v1/powerhub/indexes", {
       method: "POST",

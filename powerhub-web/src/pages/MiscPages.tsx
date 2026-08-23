@@ -319,6 +319,10 @@ export function AdminSettingsPage() {
   const [domains, setDomains] = useState("");
   const [allowPublic, setAllowPublic] = useState(false);
   const [retention, setRetention] = useState(30);
+  const [embeddingModel, setEmbeddingModel] = useState("");
+  const [chunkSize, setChunkSize] = useState(1000);
+  const [chunkOverlap, setChunkOverlap] = useState(200);
+  const [modelChoices, setModelChoices] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -326,13 +330,17 @@ export function AdminSettingsPage() {
       setDomains(String(s.allowed_domains || ""));
       setAllowPublic(Boolean(s.allow_public_email));
       setRetention(Number(s.recycle_retention_days || 30));
+      setEmbeddingModel(String(s.default_embedding_model || ""));
+      setChunkSize(Number(s.default_chunk_size ?? 1000));
+      setChunkOverlap(Number(s.default_chunk_overlap ?? 200));
+      setModelChoices(s.embedding_model_choices || []);
     });
   }, []);
 
   return (
     <div>
       <h1 className="page-title">Settings</h1>
-      <p className="page-sub">Sign-in policy and recycle bin retention.</p>
+      <p className="page-sub">Sign-in policy, recycle bin retention, and search index defaults.</p>
       <form
         className="panel"
         onSubmit={(e) => {
@@ -341,9 +349,13 @@ export function AdminSettingsPage() {
             allowed_domains: domains,
             allow_public_email: allowPublic,
             recycle_retention_days: retention,
+            default_embedding_model: embeddingModel || undefined,
+            default_chunk_size: chunkSize,
+            default_chunk_overlap: chunkOverlap,
           }).then(() => setSaved(true));
         }}
       >
+        <h3>Sign-in</h3>
         <div className="field">
           <label>Allowed email domains (comma-separated)</label>
           <input value={domains} onChange={(e) => setDomains(e.target.value)} />
@@ -356,6 +368,42 @@ export function AdminSettingsPage() {
           <label>Recycle bin retention (days)</label>
           <input type="number" min={1} value={retention} onChange={(e) => setRetention(Number(e.target.value))} />
         </div>
+
+        <h3 style={{ marginTop: 24 }}>Search index defaults</h3>
+        <p className="muted">Used when creating new indexes unless overridden per index.</p>
+        <div className="playground-grid">
+          <div className="field">
+            <label>Default embedding model</label>
+            <select value={embeddingModel} onChange={(e) => setEmbeddingModel(e.target.value)}>
+              {modelChoices.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Default chunk size (chars)</label>
+            <input
+              type="number"
+              min={0}
+              max={10000}
+              value={chunkSize}
+              onChange={(e) => setChunkSize(Number(e.target.value) || 0)}
+            />
+          </div>
+          <div className="field">
+            <label>Default chunk overlap (chars)</label>
+            <input
+              type="number"
+              min={0}
+              max={5000}
+              value={chunkOverlap}
+              onChange={(e) => setChunkOverlap(Number(e.target.value) || 0)}
+            />
+          </div>
+        </div>
+
         {saved && <div className="muted">Settings saved.</div>}
         <button className="btn primary">Save settings</button>
       </form>

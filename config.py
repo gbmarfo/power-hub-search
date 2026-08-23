@@ -6,6 +6,15 @@ load_dotenv()
 BASE_EMBEDDING_MODEL = os.getenv(
     "BASE_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
 )
+DEFAULT_CHUNK_SIZE = int(os.getenv("DEFAULT_CHUNK_SIZE", "1000"))
+DEFAULT_CHUNK_OVERLAP = int(os.getenv("DEFAULT_CHUNK_OVERLAP", "200"))
+
+EMBEDDING_MODEL_CHOICES = [
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "sentence-transformers/all-mpnet-base-v2",
+    "BAAI/bge-small-en-v1.5",
+    "BAAI/bge-base-en-v1.5",
+]
 INDEX_DB_URL = os.getenv("INDEX_DB_URL", "sqlite:///./data/powerhub.db")
 INDEX_FOLDER_PATH = os.getenv("INDEX_FOLDER_PATH", "./data")
 QUERY_CACHE_PATH = os.getenv("QUERY_CACHE_PATH", "data/cache.pkl")

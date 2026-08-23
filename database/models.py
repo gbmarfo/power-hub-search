@@ -58,6 +58,9 @@ class SearchIndex(Base):
     source = Column(String)
     schema_name = Column(String)
     created_by = Column(String)
+    embedding_model = Column(String, nullable=True)
+    chunk_size = Column(Integer, nullable=True)
+    chunk_overlap = Column(Integer, nullable=True)
 
 class IndexDocument(Base):
     __tablename__ = "index_document"

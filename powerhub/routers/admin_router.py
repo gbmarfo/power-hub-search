@@ -5,27 +5,38 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+import config
 from database.database import get_db
-from database import models as db_models
+from database import models as db_models, search_crud
 from powerhub import crud, models, schemas, search_bridge, storage
 from powerhub.capabilities import capabilities_for, normalize_role
 from powerhub.deps import HubUser, get_hub_user
+from powerhub.index_config import resolve_vector_config
 from database import schemas as search_schemas
 
 router = APIRouter()
 
 
-@router.get("/settings", response_model=schemas.SettingsOut)
-def get_settings(hub: HubUser = Depends(get_hub_user), db: Session = Depends(get_db)):
-    settings = crud.ensure_settings(db, hub.org_id)
+def _settings_out(db: Session, settings: models.VaultSettings) -> schemas.SettingsOut:
+    vector_defaults = resolve_vector_config(db, settings.org_id)
     return schemas.SettingsOut(
         org_id=settings.org_id,
         allowed_domains=settings.allowed_domains or "",
         allow_public_email=bool(settings.allow_public_email),
         recycle_retention_days=settings.recycle_retention_days or 30,
         storage_quota_bytes=settings.storage_quota_bytes or 0,
-        storage_used_bytes=crud.storage_used(db, hub.org_id),
+        storage_used_bytes=crud.storage_used(db, settings.org_id),
+        default_embedding_model=vector_defaults["embedding_model"],
+        default_chunk_size=vector_defaults["chunk_size"],
+        default_chunk_overlap=vector_defaults["chunk_overlap"],
+        embedding_model_choices=config.EMBEDDING_MODEL_CHOICES,
     )
+
+
+@router.get("/settings", response_model=schemas.SettingsOut)
+def get_settings(hub: HubUser = Depends(get_hub_user), db: Session = Depends(get_db)):
+    settings = crud.ensure_settings(db, hub.org_id)
+    return _settings_out(db, settings)
 
 
 @router.patch("/settings", response_model=schemas.SettingsOut)
@@ -42,16 +53,27 @@ def update_settings(
         settings.allow_public_email = body.allow_public_email
     if body.recycle_retention_days is not None:
         settings.recycle_retention_days = body.recycle_retention_days
+    if body.default_embedding_model is not None:
+        if body.default_embedding_model not in config.EMBEDDING_MODEL_CHOICES:
+            raise HTTPException(status_code=400, detail="Unsupported embedding model")
+        settings.default_embedding_model = body.default_embedding_model
+    if body.default_chunk_size is not None:
+        settings.default_chunk_size = body.default_chunk_size
+    if body.default_chunk_overlap is not None:
+        settings.default_chunk_overlap = body.default_chunk_overlap
+    if (
+        settings.default_chunk_size is not None
+        and settings.default_chunk_overlap is not None
+        and settings.default_chunk_overlap >= settings.default_chunk_size
+        and settings.default_chunk_size > 0
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Chunk overlap must be smaller than chunk size",
+        )
     db.commit()
     db.refresh(settings)
-    return schemas.SettingsOut(
-        org_id=settings.org_id,
-        allowed_domains=settings.allowed_domains or "",
-        allow_public_email=bool(settings.allow_public_email),
-        recycle_retention_days=settings.recycle_retention_days or 30,
-        storage_quota_bytes=settings.storage_quota_bytes or 0,
-        storage_used_bytes=crud.storage_used(db, hub.org_id),
-    )
+    return _settings_out(db, settings)
 
 
 @router.get("/users")
@@ -256,13 +278,16 @@ def _index_link_out(db: Session, link: models.VaultSearchIndexLink) -> schemas.S
 def _enrich_search_results(
     db: Session, org_id: str, results: list[dict]
 ) -> list[dict]:
+    from services.chunking import parent_doc_id
+
     enriched: list[dict] = []
     for hit in results:
         entry = dict(hit)
-        file_id = str(hit.get("id", ""))
+        file_id = parent_doc_id(str(hit.get("id", "")))
         if not file_id:
             enriched.append(entry)
             continue
+        entry["id"] = file_id
         record = (
             db.query(models.VaultFile)
             .filter_by(id=file_id, org_id=org_id, is_deleted=False)
@@ -309,6 +334,18 @@ def create_search_index(
             status_code=400,
             detail="folder_id is required. Select a vault folder whose files should be indexed.",
         )
+    if body.embedding_model and body.embedding_model not in config.EMBEDDING_MODEL_CHOICES:
+        raise HTTPException(status_code=400, detail="Unsupported embedding model")
+    if (
+        body.chunk_size is not None
+        and body.chunk_overlap is not None
+        and body.chunk_size > 0
+        and body.chunk_overlap >= body.chunk_size
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Chunk overlap must be smaller than chunk size",
+        )
     try:
         link = search_bridge.create_index_from_vault(
             db,
@@ -317,6 +354,9 @@ def create_search_index(
             description=body.description,
             folder_id=body.folder_id,
             created_by=hub.username,
+            embedding_model=body.embedding_model,
+            chunk_size=body.chunk_size,
+            chunk_overlap=body.chunk_overlap,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -420,6 +460,9 @@ def search_via_power_hub_search(
 
     from routers.search_router import _run_search
 
+    search_index = search_crud.get_search_index(db, link.search_index_id)
+    vector_cfg = resolve_vector_config(db, hub.org_id, search_index=search_index)
+
     try:
         results = _run_search(
             index_id=link.search_index_id,
@@ -430,6 +473,7 @@ def search_via_power_hub_search(
             org_id=hub.org_id,
             metadata_filters=body.metadata_filters,
             vector_weight=body.vector_weight,
+            embedding_model=vector_cfg["embedding_model"],
         )
         if body.mode != search_schemas.SearchMode.similarity:
             results = results[body.offset : body.offset + body.top_k]

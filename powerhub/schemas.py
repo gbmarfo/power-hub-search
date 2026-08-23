@@ -158,6 +158,9 @@ class SettingsUpdate(BaseModel):
     allowed_domains: str | None = None
     allow_public_email: bool | None = None
     recycle_retention_days: int | None = None
+    default_embedding_model: str | None = None
+    default_chunk_size: int | None = Field(default=None, ge=0, le=10000)
+    default_chunk_overlap: int | None = Field(default=None, ge=0, le=5000)
 
 
 class SettingsOut(BaseModel):
@@ -167,6 +170,10 @@ class SettingsOut(BaseModel):
     recycle_retention_days: int
     storage_quota_bytes: int
     storage_used_bytes: int = 0
+    default_embedding_model: str
+    default_chunk_size: int
+    default_chunk_overlap: int
+    embedding_model_choices: list[str] = Field(default_factory=list)
 
 
 class RecycleItem(BaseModel):
@@ -221,6 +228,9 @@ class SearchIndexCreateRequest(BaseModel):
     title: str
     description: str | None = None
     folder_id: str  # required — index files from this vault folder (and subfolders)
+    embedding_model: str | None = None
+    chunk_size: int | None = Field(default=None, ge=0, le=10000)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=5000)
 
 
 class SearchIndexIntegrationOut(BaseModel):
@@ -230,6 +240,9 @@ class SearchIndexIntegrationOut(BaseModel):
     registered: bool = True
     text_index_ready: bool = False
     vector_index: dict = Field(default_factory=dict)
+    embedding_model: str | None = None
+    chunk_size: int | None = None
+    chunk_overlap: int | None = None
     admin_search_url: str
     admin_index_url: str
     api_search_url: str

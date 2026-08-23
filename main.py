@@ -9,6 +9,7 @@ from auth.authentication import get_current_user
 from routers import search_router, index_router, account_router, multimodal_router
 from services.milvus_store import check_milvus_health
 from database.database import Base, SessionLocal, engine
+from database.migrate import run_migrations
 import config
 
 title = "Power Hub + Search Service API"
@@ -54,6 +55,7 @@ if config.POWERHUB_ENABLED:
     from powerhub.seed import seed_powerhub
 
     Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
     with SessionLocal() as db:
         try:
             seed_powerhub(db)

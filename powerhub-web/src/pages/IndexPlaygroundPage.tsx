@@ -187,6 +187,18 @@ export function IndexPlaygroundPage() {
               <p className="muted playground-context">
                 Folder: {selectedIndex.folder_path || selectedIndex.folder_name} ·{" "}
                 {selectedIndex.document_count} documents
+                {selectedIndex.integration?.embedding_model && (
+                  <>
+                    {" · "}
+                    {selectedIndex.integration.embedding_model.split("/").pop()}
+                    {selectedIndex.integration.chunk_size != null && (
+                      <> · chunk {selectedIndex.integration.chunk_size}</>
+                    )}
+                    {selectedIndex.integration.chunk_overlap != null && (
+                      <> / overlap {selectedIndex.integration.chunk_overlap}</>
+                    )}
+                  </>
+                )}
                 {selectedIndex.integration?.api_search_url && (
                   <>
                     {" · "}

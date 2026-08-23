@@ -11,6 +11,9 @@ export type IndexIntegration = {
   registered: boolean;
   text_index_ready: boolean;
   vector_index: { exists?: boolean; num_entities?: number };
+  embedding_model?: string;
+  chunk_size?: number;
+  chunk_overlap?: number;
   admin_search_url: string;
   admin_index_url: string;
   api_search_url: string;

@@ -101,6 +101,9 @@ class SearchIndexBase(BaseModel):
     source: str | None = None
     schema_name: str | None = None
     created_by: str | None = None
+    embedding_model: str | None = None
+    chunk_size: int | None = Field(default=None, ge=0, le=10000)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=5000)
 
 class SearchIndexCreate(SearchIndexBase):
     pass

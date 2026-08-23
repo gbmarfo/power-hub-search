@@ -3,6 +3,7 @@ import logging
 import numpy as np
 
 import config
+from services.chunking import dedupe_results_by_parent, expand_rows_for_chunking
 from services.milvus_store import MilvusVectorStore, build_filter_expr
 from services.text_search import TextSearch
 
@@ -21,14 +22,20 @@ def _get_torch_device() -> str:
 class VectorSearch:
     """Semantic search backed by Milvus with optional local text index integration."""
 
-    def __init__(self, file_id: str | None = None, org_id: str | None = None):
+    def __init__(
+        self,
+        file_id: str | None = None,
+        org_id: str | None = None,
+        embedding_model: str | None = None,
+    ):
         self.file_id = file_id
         self.org_id = org_id
+        self.embedding_model_name = embedding_model or config.BASE_EMBEDDING_MODEL
         self.torch_device = _get_torch_device()
         from sentence_transformers import SentenceTransformer
 
         self.embedding_model = SentenceTransformer(
-            config.BASE_EMBEDDING_MODEL,
+            self.embedding_model_name,
             device=self.torch_device,
         )
         self._store: MilvusVectorStore | None = None
@@ -57,12 +64,21 @@ class VectorSearch:
         text_column: str,
         id_column: str,
         org_id: str | None = None,
+        chunk_size: int = 0,
+        chunk_overlap: int = 0,
     ) -> int:
         if not data:
             raise ValueError("Cannot create index from empty data")
 
-        texts = [row[text_column] for row in data]
-        doc_ids = [str(row[id_column]) for row in data]
+        vector_rows = expand_rows_for_chunking(
+            data,
+            text_column=text_column,
+            id_column=id_column,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+        texts = [row[text_column] for row in vector_rows]
+        doc_ids = [str(row[id_column]) for row in vector_rows]
         embeddings = self.get_embeddings(texts)
 
         effective_org_id = org_id or self.org_id
@@ -83,9 +99,18 @@ class VectorSearch:
         text_column: str,
         id_column: str,
         org_id: str | None = None,
+        chunk_size: int = 0,
+        chunk_overlap: int = 0,
     ) -> int:
-        texts = [row[text_column] for row in new_data]
-        doc_ids = [str(row[id_column]) for row in new_data]
+        vector_rows = expand_rows_for_chunking(
+            new_data,
+            text_column=text_column,
+            id_column=id_column,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+        texts = [row[text_column] for row in vector_rows]
+        doc_ids = [str(row[id_column]) for row in vector_rows]
         embeddings = self.get_embeddings(texts)
         return self.store.upsert_documents(
             doc_ids=doc_ids,
@@ -107,11 +132,13 @@ class VectorSearch:
     ) -> list[dict]:
         query_embedding = self.get_embeddings([query])[0]
         filter_expr = build_filter_expr(org_id or self.org_id, metadata_filters)
-        return self.store.search(
-            query_embedding=query_embedding,
-            top_k=top_k,
-            filter_expr=filter_expr,
-            offset=offset,
+        return dedupe_results_by_parent(
+            self.store.search(
+                query_embedding=query_embedding,
+                top_k=top_k,
+                filter_expr=filter_expr,
+                offset=offset,
+            )
         )
 
     def similarity_search_lite(self, query: str, top_k: int = 5) -> list[dict]:
@@ -137,7 +164,9 @@ class VectorSearch:
             top_k=max(top_k * 3, 20),
             org_id=org_id,
         )
-        filtered = [r for r in vector_results if str(r["id"]) in allowed_ids]
+        filtered = dedupe_results_by_parent(
+            [r for r in vector_results if str(r["id"]) in allowed_ids]
+        )
         return filtered[:top_k]
 
     def hybrid_search(
@@ -164,8 +193,8 @@ class VectorSearch:
             scores[doc_id] = scores.get(doc_id, 0.0) + vector_weight / (rank + 1)
             payloads.setdefault(doc_id, result)
 
-        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:top_k]
-        return [
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)[: top_k * 3]
+        merged = [
             {
                 "id": doc_id,
                 "text": payloads[doc_id].get("text"),
@@ -173,6 +202,7 @@ class VectorSearch:
             }
             for doc_id, score in ranked
         ]
+        return dedupe_results_by_parent(merged)[:top_k]
 
     def drop_index(self) -> None:
         self.store.drop_collection()

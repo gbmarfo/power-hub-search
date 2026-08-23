@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api/client";
+import { api, type OrgSettings } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { FolderOption, IndexLink } from "./indexTypes";
 
@@ -23,6 +23,10 @@ export function IndexesPage() {
   const [folderId, setFolderId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [embeddingModel, setEmbeddingModel] = useState("");
+  const [chunkSize, setChunkSize] = useState(1000);
+  const [chunkOverlap, setChunkOverlap] = useState(200);
+  const [modelChoices, setModelChoices] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -41,12 +45,18 @@ export function IndexesPage() {
   async function load() {
     setLoading(true);
     try {
-      const [list, folderList] = await Promise.all([
+      const [list, folderList, settings] = await Promise.all([
         api.indexes(),
         api.foldersForIndex(),
+        api.settings(),
       ]);
       setIndexes(list as IndexLink[]);
       setFolders(folderList as FolderOption[]);
+      const orgSettings = settings as OrgSettings;
+      setModelChoices(orgSettings.embedding_model_choices || []);
+      setEmbeddingModel(orgSettings.default_embedding_model);
+      setChunkSize(orgSettings.default_chunk_size);
+      setChunkOverlap(orgSettings.default_chunk_overlap);
       setError("");
       const indexed = new Set((list as IndexLink[]).map((i) => i.folder_id).filter(Boolean));
       if (!folderId && folderList.length) {
@@ -90,6 +100,9 @@ export function IndexesPage() {
         title: title || `${selectedFolder?.name || "Folder"} index`,
         description,
         folder_id: folderId,
+        embedding_model: embeddingModel || undefined,
+        chunk_size: chunkSize,
+        chunk_overlap: chunkOverlap,
       });
       await load();
     } catch (err) {
@@ -205,6 +218,45 @@ export function IndexesPage() {
               rows={2}
             />
           </div>
+          <div className="playground-grid">
+            <div className="field">
+              <label htmlFor="index-embedding">Embedding model</label>
+              <select
+                id="index-embedding"
+                value={embeddingModel}
+                onChange={(e) => setEmbeddingModel(e.target.value)}
+              >
+                {modelChoices.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="index-chunk-size">Chunk size (chars)</label>
+              <input
+                id="index-chunk-size"
+                type="number"
+                min={0}
+                max={10000}
+                value={chunkSize}
+                onChange={(e) => setChunkSize(Number(e.target.value) || 0)}
+              />
+              <span className="muted">0 = no chunking (whole document)</span>
+            </div>
+            <div className="field">
+              <label htmlFor="index-chunk-overlap">Chunk overlap (chars)</label>
+              <input
+                id="index-chunk-overlap"
+                type="number"
+                min={0}
+                max={5000}
+                value={chunkOverlap}
+                onChange={(e) => setChunkOverlap(Number(e.target.value) || 0)}
+              />
+            </div>
+          </div>
           <button
             className="btn primary"
             disabled={busy || !folderId || (selectedFolder?.file_count ?? 0) === 0}
@@ -247,6 +299,13 @@ export function IndexesPage() {
                     <div className="muted" style={{ fontSize: "0.8rem", marginTop: 4 }}>
                       Text: {integration?.text_index_ready ? "ready" : "—"} · Vector:{" "}
                       {vectorOk ? `${integration?.vector_index?.num_entities ?? 0} docs` : "text only"}
+                      {integration?.embedding_model && (
+                        <>
+                          {" · "}
+                          {integration.embedding_model.split("/").pop()}
+                          {integration.chunk_size ? ` · ${integration.chunk_size} chars` : ""}
+                        </>
+                      )}
                     </div>
                   </td>
                   <td>{idx.document_count}</td>

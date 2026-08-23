@@ -13,6 +13,7 @@ import config
 from database import schemas as search_schemas
 from database import search_crud
 from powerhub import crud, models, storage
+from powerhub.index_config import resolve_vector_config
 from services.text_search import TextSearch
 from services.vector_search import VectorSearch
 
@@ -151,14 +152,28 @@ def _rebuild_text_index(index_id: str, rows: list[dict]) -> None:
     text_search.data = [(row["id"], row["concatenated_text"]) for row in rows]
 
 
-def _rebuild_vector_index(index_id: str, org_id: str, rows: list[dict]) -> int:
+def _rebuild_vector_index(
+    index_id: str,
+    org_id: str,
+    rows: list[dict],
+    *,
+    embedding_model: str,
+    chunk_size: int,
+    chunk_overlap: int,
+) -> int:
     try:
-        vector_search = VectorSearch(file_id=index_id, org_id=org_id)
+        vector_search = VectorSearch(
+            file_id=index_id,
+            org_id=org_id,
+            embedding_model=embedding_model,
+        )
         return vector_search.create_index(
             data=rows,
             text_column="concatenated_text",
             id_column="id",
             org_id=org_id,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
     except Exception as exc:
         logger.warning("Milvus indexing unavailable, text index only: %s", exc)
@@ -209,9 +224,12 @@ def get_index_integration_status(
     """Return power-hub-search integration metadata for a vault index link."""
     search_index = search_crud.get_search_index(db, link.search_index_id)
     vector_stats: dict = {"exists": False}
+    vector_cfg = resolve_vector_config(db, link.org_id, search_index=search_index)
     try:
         vector_stats = VectorSearch(
-            file_id=link.search_index_id, org_id=link.org_id
+            file_id=link.search_index_id,
+            org_id=link.org_id,
+            embedding_model=vector_cfg["embedding_model"],
         ).get_stats()
     except Exception as exc:
         vector_stats = {"exists": False, "detail": str(exc)}
@@ -224,6 +242,9 @@ def get_index_integration_status(
         "registered": search_index is not None,
         "text_index_ready": text_index_ready,
         "vector_index": vector_stats,
+        "embedding_model": vector_cfg["embedding_model"],
+        "chunk_size": vector_cfg["chunk_size"],
+        "chunk_overlap": vector_cfg["chunk_overlap"],
         "admin_search_url": f"/admin/search?index={link.search_index_id}&org={link.org_id}",
         "admin_index_url": f"/admin/indexes/{link.search_index_id}",
         "api_search_url": f"/api/v1/search/{link.search_index_id}",
@@ -237,8 +258,15 @@ def sync_index_from_vault(
     """Re-sync vault files into the existing power-hub-search index."""
     rows = _build_rows(db, link.org_id, link.folder_id)
     count = _sync_docs(db, link.org_id, link.folder_id, rows)
+    search_index = search_crud.get_search_index(db, link.search_index_id)
+    vector_cfg = resolve_vector_config(db, link.org_id, search_index=search_index)
     _rebuild_text_index(link.search_index_id, rows)
-    inserted = _rebuild_vector_index(link.search_index_id, link.org_id, rows)
+    inserted = _rebuild_vector_index(
+        link.search_index_id,
+        link.org_id,
+        rows,
+        **vector_cfg,
+    )
 
     link.document_count = inserted or count
     link.updated_at = datetime.utcnow()
@@ -269,6 +297,9 @@ def create_index_from_vault(
     description: str | None,
     folder_id: str,
     created_by: str,
+    embedding_model: str | None = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> models.VaultSearchIndexLink:
     folder = (
         db.query(models.VaultFolder)
@@ -298,6 +329,13 @@ def create_index_from_vault(
 
     count = _sync_docs(db, org_id, folder_id, rows)
     folder_label = folder.path or f"/{folder.name}"
+    vector_cfg = resolve_vector_config(
+        db,
+        org_id,
+        embedding_model=embedding_model,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
 
     payload = search_schemas.SearchIndexCreate(
         title=title,
@@ -310,12 +348,20 @@ def create_index_from_vault(
         source="powerhub",
         schema_name=None,
         created_by=created_by,
+        embedding_model=vector_cfg["embedding_model"],
+        chunk_size=vector_cfg["chunk_size"],
+        chunk_overlap=vector_cfg["chunk_overlap"],
     )
     search_index = search_crud.create_search_index(db=db, search_index=payload)
     index_id = search_index.global_id
 
     _rebuild_text_index(index_id, rows)
-    inserted = _rebuild_vector_index(index_id, org_id, rows)
+    inserted = _rebuild_vector_index(
+        index_id,
+        org_id,
+        rows,
+        **vector_cfg,
+    )
 
     link = models.VaultSearchIndexLink(
         id=storage.new_id(),
@@ -336,8 +382,14 @@ def create_index_from_vault(
 
 
 def delete_index_link(db: Session, link: models.VaultSearchIndexLink) -> None:
+    search_index = search_crud.get_search_index(db, link.search_index_id)
+    vector_cfg = resolve_vector_config(db, link.org_id, search_index=search_index)
     try:
-        VectorSearch(file_id=link.search_index_id, org_id=link.org_id).drop_index()
+        VectorSearch(
+            file_id=link.search_index_id,
+            org_id=link.org_id,
+            embedding_model=vector_cfg["embedding_model"],
+        ).drop_index()
     except Exception as exc:
         logger.warning("Failed to drop Milvus collection: %s", exc)
     _purge_docs_for_scope(db, link.org_id, link.folder_id)
