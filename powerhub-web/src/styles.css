@@ -101,11 +101,27 @@ a {
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
+}
+
+.nav-section + .nav-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.nav-section-title {
+  margin: 0 0 4px;
+  padding: 0 12px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .nav-link {

@@ -3,6 +3,35 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api/client";
 
+type NavItem = {
+  to: string;
+  label: string;
+  end?: boolean;
+};
+
+type NavSection = {
+  title: string;
+  items: NavItem[];
+};
+
+function NavSectionBlock({ title, items }: NavSection) {
+  return (
+    <div className="nav-section">
+      <p className="nav-section-title">{title}</p>
+      {items.map((item) => (
+        <NavLink
+          key={item.to}
+          className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+          to={item.to}
+          end={item.end}
+        >
+          {item.label}
+        </NavLink>
+      ))}
+    </div>
+  );
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const { user, logout, can } = useAuth();
   const navigate = useNavigate();
@@ -24,6 +53,51 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const pct = Math.min(100, Math.round((used / Math.max(quota, 1)) * 100));
 
+  const navSections: NavSection[] = [
+    {
+      title: "Overview",
+      items: [{ to: "/", label: "Home", end: true }],
+    },
+    {
+      title: "Library",
+      items: [
+        { to: "/files", label: "Files" },
+        { to: "/recycle", label: "Recycle bin" },
+      ],
+    },
+    {
+      title: "Search",
+      items: [
+        { to: "/search", label: "Library search" },
+        { to: "/indexes/playground", label: "Search playground" },
+        { to: "/indexes", label: "Manage indexes", end: true },
+      ],
+    },
+    {
+      title: "Collaboration",
+      items: [
+        { to: "/shares", label: "My shares" },
+        { to: "/groups", label: "Groups" },
+      ],
+    },
+    {
+      title: "Account",
+      items: [
+        { to: "/notifications", label: "Notifications" },
+        { to: "/profile", label: "Profile" },
+      ],
+    },
+  ];
+
+  const adminSection: NavSection = {
+    title: "Administration",
+    items: [
+      { to: "/admin/users", label: "Users" },
+      { to: "/admin/settings", label: "Settings" },
+      { to: "/admin/audit", label: "Audit log" },
+    ],
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -35,59 +109,10 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <nav className="nav">
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/" end>
-            Home
-          </NavLink>
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/files">
-            Files
-          </NavLink>
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/shares">
-            My Shares
-          </NavLink>
-          <div className="muted" style={{ padding: "12px 12px 4px", fontSize: "0.75rem" }}>
-            SEARCH
-          </div>
-          <NavLink
-            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            to="/indexes"
-            end
-          >
-            Manage indexes
-          </NavLink>
-          <NavLink
-            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-            to="/indexes/playground"
-          >
-            Search playground
-          </NavLink>
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/recycle">
-            Recycle Bin
-          </NavLink>
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/groups">
-            Groups
-          </NavLink>
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/notifications">
-            Notifications
-          </NavLink>
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/profile">
-            Profile
-          </NavLink>
-          {can("users.manage") && (
-            <>
-              <div className="muted" style={{ padding: "12px 12px 4px", fontSize: "0.75rem" }}>
-                ADMINISTRATION
-              </div>
-              <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/admin/users">
-                Users
-              </NavLink>
-              <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/admin/settings">
-                Settings
-              </NavLink>
-              <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/admin/audit">
-                Audit log
-              </NavLink>
-            </>
-          )}
+          {navSections.map((section) => (
+            <NavSectionBlock key={section.title} {...section} />
+          ))}
+          {can("users.manage") && <NavSectionBlock {...adminSection} />}
         </nav>
         <div className="storage-meter">
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
