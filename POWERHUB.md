@@ -64,5 +64,5 @@ From **Search Indexes** in Power Hub:
 | `INDEX_DB_URL` | `sqlite:///./data/powerhub.db` | Shared metadata DB |
 | `POWERHUB_STORAGE_PATH` | `./data/powerhub/files` | Uploaded file storage |
 | `POWERHUB_ENABLED` | `true` | Toggle Power Hub routes |
-| `MILVUS_URI` | `http://localhost:19530` | Vector backend |
+| `MILVUS_URI` | `./data/milvus.db` | Vector backend (Milvus Lite by default; use `http://localhost:19530` with Docker) |
 | `JWT_SECRET_KEY` | `change-me-in-production` | Auth tokens |
