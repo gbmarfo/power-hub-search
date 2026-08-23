@@ -44,8 +44,21 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/shares">
             My Shares
           </NavLink>
-          <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/indexes">
-            Search Indexes
+          <div className="muted" style={{ padding: "12px 12px 4px", fontSize: "0.75rem" }}>
+            SEARCH
+          </div>
+          <NavLink
+            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+            to="/indexes"
+            end
+          >
+            Manage indexes
+          </NavLink>
+          <NavLink
+            className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+            to="/indexes/playground"
+          >
+            Search playground
           </NavLink>
           <NavLink className={({ isActive }) => `nav-link${isActive ? " active" : ""}`} to="/recycle">
             Recycle Bin

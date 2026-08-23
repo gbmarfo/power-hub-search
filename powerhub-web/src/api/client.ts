@@ -238,10 +238,10 @@ export const api = {
   getIndex(id: string) {
     return request<Record<string, unknown>>(`/api/v1/powerhub/indexes/${id}`);
   },
-  searchIndex(linkId: string, query: string, mode = "full_text") {
+  searchIndex(linkId: string, query: string, mode = "full_text", topK = 10) {
     return request<Record<string, unknown>>(`/api/v1/powerhub/indexes/${linkId}/search`, {
       method: "POST",
-      body: JSON.stringify({ query, mode, top_k: 10 }),
+      body: JSON.stringify({ query, mode, top_k: topK }),
     });
   },
   publicShare(token: string) {

@@ -4,6 +4,7 @@ import { useAuth } from "./context/AuthContext";
 import { DashboardPage } from "./pages/DashboardPage";
 import { FilesPage } from "./pages/FilesPage";
 import { IndexesPage } from "./pages/IndexesPage";
+import { IndexPlaygroundPage } from "./pages/IndexPlaygroundPage";
 import { LoginPage } from "./pages/LoginPage";
 import {
   AdminAuditPage,
@@ -102,6 +103,18 @@ export default function App() {
             <RequireProfile>
               <Layout>
                 <IndexesPage />
+              </Layout>
+            </RequireProfile>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/indexes/playground"
+        element={
+          <RequireAuth>
+            <RequireProfile>
+              <Layout>
+                <IndexPlaygroundPage />
               </Layout>
             </RequireProfile>
           </RequireAuth>
