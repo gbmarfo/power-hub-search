@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import mimetypes
-import os
 import shutil
 import uuid
 from pathlib import Path
 
 import config
+from powerhub.document_parser import (
+    ParseResult,
+    parse_document,
+    save_extracted_images,
+)
 
 
 def vault_root() -> Path:
@@ -67,28 +71,45 @@ def permanently_delete(storage_path: str) -> None:
         path.unlink()
 
 
-def extract_text(filename: str, data: bytes) -> str:
-    """Best-effort text extraction for search indexing."""
+def extract_document(filename: str, data: bytes, *, org_id: str | None = None, file_id: str | None = None) -> ParseResult:
+    """Parse text, tables, figures, and images (with OCR) for search indexing."""
     ext = extension_of(filename)
+    if ext in {"pdf", "docx", "doc"}:
+        result = parse_document(filename, data)
+        if org_id and file_id and result.images:
+            try:
+                save_extracted_images(org_id, file_id, result.images)
+            except Exception:
+                pass
+        return result
+
+    result = ParseResult()
     if ext in {"txt", "md", "csv", "json", "log", "py", "js", "ts", "html", "css", "xml"}:
         try:
-            return data.decode("utf-8", errors="ignore")[:200_000]
+            result.text = data.decode("utf-8", errors="ignore")[:400_000]
         except Exception:
-            return ""
-    if ext == "pdf":
-        try:
-            from io import BytesIO
+            result.text = ""
+    return result
 
-            from PyPDF2 import PdfReader
 
-            reader = PdfReader(BytesIO(data))
-            parts: list[str] = []
-            for page in reader.pages[:50]:
-                parts.append(page.extract_text() or "")
-            return "\n".join(parts)[:200_000]
-        except Exception:
-            return ""
-    return ""
+def extract_text(
+    filename: str,
+    data: bytes,
+    *,
+    org_id: str | None = None,
+    file_id: str | None = None,
+) -> str:
+    """Best-effort searchable text including tables/figures/image OCR for Office docs."""
+    return extract_document(filename, data, org_id=org_id, file_id=file_id).as_search_text()
+
+
+def reparse_stored_file(filename: str, storage_path: str, *, org_id: str, file_id: str) -> str:
+    """Re-run rich parsing from disk (used when building search indexes)."""
+    path = Path(storage_path)
+    if not path.is_file():
+        return ""
+    data = path.read_bytes()
+    return extract_text(filename, data, org_id=org_id, file_id=file_id)
 
 
 def new_id() -> str:

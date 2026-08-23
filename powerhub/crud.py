@@ -244,7 +244,7 @@ def upload_file(
             raise ValueError("Folder not found")
     file_id = storage.new_id()
     path = storage.save_upload(org_id, file_id, filename, data)
-    text = storage.extract_text(filename, data)
+    text = storage.extract_text(filename, data, org_id=org_id, file_id=file_id)
     record = models.VaultFile(
         id=file_id,
         name=filename,

@@ -51,7 +51,23 @@ def _build_rows(db: Session, org_id: str, folder_id: str | None) -> list[dict]:
             else None
         )
         path = crud.folder_path(db, folder)
+        ext = (file.extension or "").lower()
         content = file.content_text or ""
+        # Re-parse PDF/Word on index build so text, tables, figures, and image OCR
+        # are included even for files uploaded before the rich parser existed.
+        if ext in {"pdf", "docx", "doc"} and file.storage_path:
+            try:
+                refreshed = storage.reparse_stored_file(
+                    file.name,
+                    file.storage_path,
+                    org_id=org_id,
+                    file_id=file.id,
+                )
+                if refreshed.strip():
+                    content = refreshed
+                    file.content_text = refreshed
+            except Exception as exc:
+                logger.warning("Reparse failed for %s: %s", file.id, exc)
         concatenated = f"{file.name}\n{path}\n{content}".strip()
         rows.append(
             {
@@ -66,6 +82,8 @@ def _build_rows(db: Session, org_id: str, folder_id: str | None) -> list[dict]:
                 "concatenated_text": concatenated,
             }
         )
+    if files:
+        db.commit()
     return rows
 
 
