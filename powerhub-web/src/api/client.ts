@@ -230,6 +230,14 @@ export const api = {
   deleteIndex(id: string) {
     return request(`/api/v1/powerhub/indexes/${id}`, { method: "DELETE" });
   },
+  syncIndex(id: string) {
+    return request<Record<string, unknown>>(`/api/v1/powerhub/indexes/${id}/sync`, {
+      method: "POST",
+    });
+  },
+  getIndex(id: string) {
+    return request<Record<string, unknown>>(`/api/v1/powerhub/indexes/${id}`);
+  },
   searchIndex(linkId: string, query: string, mode = "full_text") {
     return request<Record<string, unknown>>(`/api/v1/powerhub/indexes/${linkId}/search`, {
       method: "POST",

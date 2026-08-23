@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 
 from sqlalchemy import Column, MetaData, String, Table, Text, inspect
 from sqlalchemy.orm import Session
 
+import config
 from database import schemas as search_schemas
 from database import search_crud
 from powerhub import crud, models, storage
@@ -17,6 +19,10 @@ from services.vector_search import VectorSearch
 logger = logging.getLogger(__name__)
 
 DOC_TABLE = "powerhub_search_docs"
+
+
+def _text_index_path(index_id: str) -> str:
+    return os.path.join(config.INDEX_FOLDER_PATH, f"{index_id}_ivf.pkl")
 
 
 def _ensure_doc_table(db: Session) -> None:
@@ -109,6 +115,152 @@ def _sync_docs(db: Session, org_id: str, folder_id: str | None, rows: list[dict]
     return len(rows)
 
 
+def _purge_docs_for_scope(db: Session, org_id: str, folder_id: str | None) -> None:
+    _ensure_doc_table(db)
+    engine = db.get_bind()
+    metadata = MetaData()
+    table = Table(DOC_TABLE, metadata, autoload_with=engine)
+    if folder_id:
+        db.execute(table.delete().where(table.c.folder_id == folder_id))
+    else:
+        db.execute(table.delete().where(table.c.org_id == org_id))
+    db.commit()
+
+
+def _delete_text_index_file(index_id: str) -> None:
+    path = _text_index_path(index_id)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError as exc:
+            logger.warning("Failed to remove text index file %s: %s", path, exc)
+
+
+def _rebuild_text_index(index_id: str, rows: list[dict]) -> None:
+    text_search = TextSearch(index_file=index_id)
+    text_search.index = {}
+    text_search.documents = {}
+    text_search.doc_lengths = {}
+    text_search.cache = {}
+    text_search.avg_doc_length = 0
+    for row in rows:
+        try:
+            text_search.add_document(row["id"], row["concatenated_text"])
+        except Exception as exc:
+            logger.warning("Skipping text index for %s: %s", row["id"], exc)
+    text_search.data = [(row["id"], row["concatenated_text"]) for row in rows]
+
+
+def _rebuild_vector_index(index_id: str, org_id: str, rows: list[dict]) -> int:
+    try:
+        vector_search = VectorSearch(file_id=index_id, org_id=org_id)
+        return vector_search.create_index(
+            data=rows,
+            text_column="concatenated_text",
+            id_column="id",
+            org_id=org_id,
+        )
+    except Exception as exc:
+        logger.warning("Milvus indexing unavailable, text index only: %s", exc)
+        return len(rows)
+
+
+def _folder_path(db: Session, folder_id: str | None) -> str | None:
+    if not folder_id:
+        return None
+    folder = db.query(models.VaultFolder).filter_by(id=folder_id).first()
+    if folder is None:
+        return None
+    return (folder.path or f"/{folder.name}").rstrip("/")
+
+
+def links_affected_by_folder(
+    db: Session, org_id: str, changed_folder_id: str | None
+) -> list[models.VaultSearchIndexLink]:
+    """Return index links whose vault scope includes the changed folder."""
+    links = (
+        db.query(models.VaultSearchIndexLink)
+        .filter_by(org_id=org_id)
+        .all()
+    )
+    if not changed_folder_id:
+        return links
+
+    changed_path = _folder_path(db, changed_folder_id)
+    if changed_path is None:
+        return []
+
+    affected: list[models.VaultSearchIndexLink] = []
+    for link in links:
+        if not link.folder_id:
+            affected.append(link)
+            continue
+        index_path = _folder_path(db, link.folder_id)
+        if index_path is None:
+            continue
+        if changed_path == index_path or changed_path.startswith(f"{index_path}/"):
+            affected.append(link)
+    return affected
+
+
+def get_index_integration_status(
+    db: Session, link: models.VaultSearchIndexLink
+) -> dict:
+    """Return power-hub-search integration metadata for a vault index link."""
+    search_index = search_crud.get_search_index(db, link.search_index_id)
+    vector_stats: dict = {"exists": False}
+    try:
+        vector_stats = VectorSearch(
+            file_id=link.search_index_id, org_id=link.org_id
+        ).get_stats()
+    except Exception as exc:
+        vector_stats = {"exists": False, "detail": str(exc)}
+
+    text_index_ready = os.path.exists(_text_index_path(link.search_index_id))
+    return {
+        "search_index_id": link.search_index_id,
+        "source": search_index.source if search_index else "powerhub",
+        "table_name": search_index.table_name if search_index else DOC_TABLE,
+        "registered": search_index is not None,
+        "text_index_ready": text_index_ready,
+        "vector_index": vector_stats,
+        "admin_search_url": f"/admin/search?index={link.search_index_id}&org={link.org_id}",
+        "admin_index_url": f"/admin/indexes/{link.search_index_id}",
+        "api_search_url": f"/api/v1/search/{link.search_index_id}",
+        "powerhub_search_url": f"/api/v1/powerhub/indexes/{link.id}/search",
+    }
+
+
+def sync_index_from_vault(
+    db: Session, link: models.VaultSearchIndexLink
+) -> models.VaultSearchIndexLink:
+    """Re-sync vault files into the existing power-hub-search index."""
+    rows = _build_rows(db, link.org_id, link.folder_id)
+    count = _sync_docs(db, link.org_id, link.folder_id, rows)
+    _rebuild_text_index(link.search_index_id, rows)
+    inserted = _rebuild_vector_index(link.search_index_id, link.org_id, rows)
+
+    link.document_count = inserted or count
+    link.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+def sync_indexes_for_folder(
+    db: Session, org_id: str, folder_id: str | None
+) -> list[str]:
+    """Re-sync all indexes whose scope includes the given folder. Returns link IDs."""
+    synced: list[str] = []
+    for link in links_affected_by_folder(db, org_id, folder_id):
+        try:
+            sync_index_from_vault(db, link)
+            synced.append(link.id)
+        except Exception as exc:
+            logger.warning("Auto-sync failed for index link %s: %s", link.id, exc)
+    return synced
+
+
 def create_index_from_vault(
     db: Session,
     *,
@@ -125,6 +277,17 @@ def create_index_from_vault(
     )
     if folder is None:
         raise ValueError("Folder not found. Choose an existing vault folder to index.")
+
+    existing = (
+        db.query(models.VaultSearchIndexLink)
+        .filter_by(org_id=org_id, folder_id=folder_id)
+        .first()
+    )
+    if existing is not None:
+        raise ValueError(
+            f"An index already exists for “{folder.path or folder.name}”. "
+            "Use Sync to refresh it instead of creating a duplicate."
+        )
 
     rows = _build_rows(db, org_id, folder_id)
     if not rows:
@@ -151,26 +314,8 @@ def create_index_from_vault(
     search_index = search_crud.create_search_index(db=db, search_index=payload)
     index_id = search_index.global_id
 
-    text_search = TextSearch(index_file=index_id)
-    for row in rows:
-        try:
-            text_search.add_document(row["id"], row["concatenated_text"])
-        except Exception as exc:
-            logger.warning("Skipping text index for %s: %s", row["id"], exc)
-    text_search.data = [(row["id"], row["concatenated_text"]) for row in rows]
-
-    inserted = 0
-    try:
-        vector_search = VectorSearch(file_id=index_id, org_id=org_id)
-        inserted = vector_search.create_index(
-            data=rows,
-            text_column="concatenated_text",
-            id_column="id",
-            org_id=org_id,
-        )
-    except Exception as exc:
-        logger.warning("Milvus indexing unavailable, text index only: %s", exc)
-        inserted = len(rows)
+    _rebuild_text_index(index_id, rows)
+    inserted = _rebuild_vector_index(index_id, org_id, rows)
 
     link = models.VaultSearchIndexLink(
         id=storage.new_id(),
@@ -195,6 +340,22 @@ def delete_index_link(db: Session, link: models.VaultSearchIndexLink) -> None:
         VectorSearch(file_id=link.search_index_id, org_id=link.org_id).drop_index()
     except Exception as exc:
         logger.warning("Failed to drop Milvus collection: %s", exc)
+    _purge_docs_for_scope(db, link.org_id, link.folder_id)
+    _delete_text_index_file(link.search_index_id)
     search_crud.delete_search_index(db, link.search_index_id)
     db.delete(link)
+    db.commit()
+
+
+def cleanup_powerhub_search_index(db: Session, index_id: str, org_id: str) -> None:
+    """Remove vault link and materialized docs when deleting from search admin."""
+    link = (
+        db.query(models.VaultSearchIndexLink)
+        .filter_by(search_index_id=index_id, org_id=org_id)
+        .first()
+    )
+    if link is not None:
+        _purge_docs_for_scope(db, link.org_id, link.folder_id)
+        db.delete(link)
+    _delete_text_index_file(index_id)
     db.commit()

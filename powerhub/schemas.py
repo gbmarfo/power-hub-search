@@ -223,6 +223,19 @@ class SearchIndexCreateRequest(BaseModel):
     folder_id: str  # required — index files from this vault folder (and subfolders)
 
 
+class SearchIndexIntegrationOut(BaseModel):
+    search_index_id: str
+    source: str = "powerhub"
+    table_name: str = "powerhub_search_docs"
+    registered: bool = True
+    text_index_ready: bool = False
+    vector_index: dict = Field(default_factory=dict)
+    admin_search_url: str
+    admin_index_url: str
+    api_search_url: str
+    powerhub_search_url: str
+
+
 class SearchIndexLinkOut(BaseModel):
     id: str
     title: str
@@ -235,6 +248,7 @@ class SearchIndexLinkOut(BaseModel):
     created_by: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    integration: SearchIndexIntegrationOut | None = None
 
 
 class FolderIndexOption(BaseModel):

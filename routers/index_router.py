@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from auth.authentication import get_current_user
 from database import schemas, models, search_crud
 from database.database import get_db
+from powerhub import search_bridge
 from services.text_search import TextSearch
 from services.vector_search import VectorSearch
 
@@ -98,6 +99,8 @@ def delete_index(
         raise HTTPException(status_code=404, detail="Search index not found")
 
     VectorSearch(file_id=index_id, org_id=index.org_id).drop_index()
+    if index.source == "powerhub":
+        search_bridge.cleanup_powerhub_search_index(db, index_id, index.org_id or "")
     deleted = search_crud.delete_search_index(db, index_id)
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete index metadata")

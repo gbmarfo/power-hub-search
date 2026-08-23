@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -10,10 +11,27 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from database.database import get_db
-from powerhub import crud, models, schemas, storage
+from powerhub import crud, models, schemas, search_bridge, storage
 from powerhub.deps import HubUser, get_hub_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _sync_indexes_after_vault_change(
+    db: Session, org_id: str, folder_id: str | None, *, also_folder_id: str | None = None
+) -> None:
+    """Re-sync power-hub-search indexes affected by a vault file/folder change."""
+    folder_ids = {folder_id, also_folder_id}
+    for fid in folder_ids:
+        if not fid:
+            continue
+        try:
+            synced = search_bridge.sync_indexes_for_folder(db, org_id, fid)
+            if synced:
+                logger.info("Auto-synced index links %s after vault change", synced)
+        except Exception as exc:
+            logger.warning("Index auto-sync failed for folder %s: %s", fid, exc)
 
 
 def _folder_out(folder: models.VaultFolder) -> schemas.FolderOut:
@@ -135,6 +153,7 @@ async def upload_file(
         item_id=record.id,
         detail=record.name,
     )
+    _sync_indexes_after_vault_change(db, hub.org_id, record.folder_id)
     return _file_out(db, record)
 
 
@@ -187,6 +206,7 @@ def rename_file(
     record.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(record)
+    _sync_indexes_after_vault_change(db, hub.org_id, record.folder_id)
     return _file_out(db, record)
 
 
@@ -213,10 +233,14 @@ def move_file(
         )
         if folder is None:
             raise HTTPException(status_code=404, detail="Target folder not found")
+    old_folder_id = record.folder_id
     record.folder_id = body.target_folder_id
     record.modified_by = hub.user_id
     db.commit()
     db.refresh(record)
+    _sync_indexes_after_vault_change(
+        db, hub.org_id, record.folder_id, also_folder_id=old_folder_id
+    )
     return _file_out(db, record)
 
 
@@ -262,6 +286,7 @@ def delete_file(
             raise HTTPException(status_code=403, detail="Missing capability: files.delete_own")
     else:
         hub.require("files.delete")
+    folder_id = record.folder_id
     crud.soft_delete_file(db, record, hub.username)
     crud.log_audit(
         db,
@@ -272,6 +297,7 @@ def delete_file(
         item_id=record.id,
         detail=record.name,
     )
+    _sync_indexes_after_vault_change(db, hub.org_id, folder_id)
     return {"message": "moved to recycle bin"}
 
 

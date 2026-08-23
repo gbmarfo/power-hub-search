@@ -59,9 +59,27 @@ On upload and when building a folder search index, Power Hub richly parses:
 From **Search Indexes** in Power Hub:
 
 1. Upload documents into the vault
-2. Click **Create search index**
+2. Select a folder and click **Create search index**
 3. Power Hub syncs file text into `powerhub_search_docs`, registers a `search_index` row (`source=powerhub`), builds the text inverted index, and (when Milvus is up) a vector collection
-4. Query that index from Power Hub or via `/api/v1/search/{index_id}`
+4. Query that index from Power Hub, the search admin playground, or via `/api/v1/search/{index_id}`
+
+### power-hub-search integration
+
+Each vault index is fully registered in power-hub-search:
+
+| Component | Location |
+|-----------|----------|
+| Search metadata | `search_index` table (`source=powerhub`) |
+| Materialized docs | `powerhub_search_docs` |
+| Vault link | `powerhub_search_index_link` |
+| Text index | `data/{search_index_id}_ivf.pkl` |
+| Vector index | Milvus collection `idx_{search_index_id}` |
+
+**Sync:** Use the **Sync** button in Power Hub (or `POST /api/v1/powerhub/indexes/{link_id}/sync`) to rebuild from vault files. Uploads, deletes, renames, and moves in indexed folders trigger auto-sync.
+
+**Admin:** Power Hub indexes appear in the search admin at `/admin/indexes` with `source=powerhub`. Links to the search playground and index detail page are shown on each index row.
+
+**Search modes:** similarity, full_text, hybrid, and ranked_naive are available from Power Hub and the unified search API.
 
 ## Configuration
 

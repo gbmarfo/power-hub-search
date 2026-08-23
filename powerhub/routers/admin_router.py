@@ -11,7 +11,6 @@ from powerhub import crud, models, schemas, search_bridge, storage
 from powerhub.capabilities import capabilities_for, normalize_role
 from powerhub.deps import HubUser, get_hub_user
 from database import schemas as search_schemas
-from services.vector_search import VectorSearch
 
 router = APIRouter()
 
@@ -237,6 +236,7 @@ def _index_link_out(db: Session, link: models.VaultSearchIndexLink) -> schemas.S
         if folder:
             folder_name = folder.name
             folder_path = folder.path or f"/{folder.name}"
+    integration = search_bridge.get_index_integration_status(db, link)
     return schemas.SearchIndexLinkOut(
         id=link.id,
         title=link.title,
@@ -249,7 +249,40 @@ def _index_link_out(db: Session, link: models.VaultSearchIndexLink) -> schemas.S
         created_by=link.created_by,
         created_at=link.created_at,
         updated_at=link.updated_at,
+        integration=schemas.SearchIndexIntegrationOut(**integration),
     )
+
+
+def _enrich_search_results(
+    db: Session, org_id: str, results: list[dict]
+) -> list[dict]:
+    enriched: list[dict] = []
+    for hit in results:
+        entry = dict(hit)
+        file_id = str(hit.get("id", ""))
+        if not file_id:
+            enriched.append(entry)
+            continue
+        record = (
+            db.query(models.VaultFile)
+            .filter_by(id=file_id, org_id=org_id, is_deleted=False)
+            .first()
+        )
+        if record is None:
+            enriched.append(entry)
+            continue
+        folder = (
+            db.query(models.VaultFolder).filter_by(id=record.folder_id).first()
+            if record.folder_id
+            else None
+        )
+        entry["name"] = record.name
+        entry["path"] = crud.folder_path(db, folder)
+        entry["extension"] = record.extension
+        entry["file_id"] = record.id
+        entry["download_url"] = f"/api/v1/powerhub/files/{record.id}/download"
+        enriched.append(entry)
+    return enriched
 
 
 @router.get("/indexes", response_model=list[schemas.SearchIndexLinkOut])
@@ -298,6 +331,54 @@ def create_search_index(
         item_type="search_index",
         item_id=link.search_index_id,
         detail=f"{link.title} ← {body.folder_id}",
+    )
+    return _index_link_out(db, link)
+
+
+@router.get("/indexes/{link_id}", response_model=schemas.SearchIndexLinkOut)
+def get_search_index(
+    link_id: str,
+    hub: HubUser = Depends(get_hub_user),
+    db: Session = Depends(get_db),
+):
+    hub.require("indexes.view")
+    link = (
+        db.query(models.VaultSearchIndexLink)
+        .filter_by(id=link_id, org_id=hub.org_id)
+        .first()
+    )
+    if link is None:
+        raise HTTPException(status_code=404, detail="Index link not found")
+    return _index_link_out(db, link)
+
+
+@router.post("/indexes/{link_id}/sync", response_model=schemas.SearchIndexLinkOut)
+def sync_search_index(
+    link_id: str,
+    hub: HubUser = Depends(get_hub_user),
+    db: Session = Depends(get_db),
+):
+    """Re-sync vault files into the registered power-hub-search index."""
+    hub.require("indexes.create")
+    link = (
+        db.query(models.VaultSearchIndexLink)
+        .filter_by(id=link_id, org_id=hub.org_id)
+        .first()
+    )
+    if link is None:
+        raise HTTPException(status_code=404, detail="Index link not found")
+    try:
+        link = search_bridge.sync_index_from_vault(db, link)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Index sync failed: {exc}") from exc
+    crud.log_audit(
+        db,
+        org_id=hub.org_id,
+        actor=hub.username,
+        action="index.sync",
+        item_type="search_index",
+        item_id=link.search_index_id,
+        detail=link.title,
     )
     return _index_link_out(db, link)
 
@@ -352,11 +433,13 @@ def search_via_power_hub_search(
         )
         if body.mode != search_schemas.SearchMode.similarity:
             results = results[body.offset : body.offset + body.top_k]
+        results = _enrich_search_results(db, hub.org_id, results)
         return {
             "results": results,
             "mode": body.mode.value,
             "total_returned": len(results),
             "search_index_id": link.search_index_id,
+            "integration": search_bridge.get_index_integration_status(db, link),
         }
     except Exception as exc:
         # Fall back to library name search if vector backend is down

@@ -173,6 +173,7 @@ export function IndexesPage() {
             <thead>
               <tr>
                 <th>Title</th>
+                <th>Source</th>
                 <th>Source table</th>
                 <th>Columns</th>
                 <th>Actions</th>
@@ -186,8 +187,15 @@ export function IndexesPage() {
                     <p className="muted small">{index.description}</p>
                   </td>
                   <td>
+                    <span className={`badge ${index.source === "powerhub" ? "badge-ok" : "badge-neutral"}`}>
+                      {index.source ?? "sql"}
+                    </span>
+                  </td>
+                  <td>
                     <code>
-                      {index.schema_name}.{index.table_name}
+                      {index.source === "powerhub"
+                        ? index.table_name
+                        : `${index.schema_name ?? "dbo"}.${index.table_name}`}
                     </code>
                   </td>
                   <td>
