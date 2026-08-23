@@ -408,24 +408,57 @@ def files_for_index(
         models.VaultFile.org_id == org_id,
         models.VaultFile.is_deleted.is_(False),
     )
-    if folder_id:
-        # include folder and descendants by path prefix
-        folder = db.query(models.VaultFolder).filter_by(id=folder_id, org_id=org_id).first()
-        if folder is None:
-            return []
-        prefix = folder.path.rstrip("/")
-        folder_ids = [
-            f.id
-            for f in db.query(models.VaultFolder)
-            .filter(
-                models.VaultFolder.org_id == org_id,
-                models.VaultFolder.is_deleted.is_(False),
-                or_(
-                    models.VaultFolder.id == folder_id,
-                    models.VaultFolder.path.like(f"{prefix}/%"),
-                ),
-            )
-            .all()
-        ]
-        query = query.filter(models.VaultFile.folder_id.in_(folder_ids))
-    return query.all()
+    if not folder_id:
+        return query.all()
+
+    folder = (
+        db.query(models.VaultFolder)
+        .filter_by(id=folder_id, org_id=org_id, is_deleted=False)
+        .first()
+    )
+    if folder is None:
+        return []
+
+    # Include the selected folder and all descendant folders.
+    prefix = (folder.path or f"/{folder.name}").rstrip("/")
+    folder_ids = [
+        f.id
+        for f in db.query(models.VaultFolder)
+        .filter(
+            models.VaultFolder.org_id == org_id,
+            models.VaultFolder.is_deleted.is_(False),
+            or_(
+                models.VaultFolder.id == folder_id,
+                models.VaultFolder.path == prefix,
+                models.VaultFolder.path.like(f"{prefix}/%"),
+            ),
+        )
+        .all()
+    ]
+    if not folder_ids:
+        folder_ids = [folder_id]
+    return query.filter(models.VaultFile.folder_id.in_(folder_ids)).all()
+
+
+def list_folders_with_counts(db: Session, org_id: str) -> list[dict]:
+    folders = (
+        db.query(models.VaultFolder)
+        .filter(
+            models.VaultFolder.org_id == org_id,
+            models.VaultFolder.is_deleted.is_(False),
+        )
+        .order_by(models.VaultFolder.path, models.VaultFolder.name)
+        .all()
+    )
+    results = []
+    for folder in folders:
+        count = len(files_for_index(db, org_id, folder.id))
+        results.append(
+            {
+                "id": folder.id,
+                "name": folder.name,
+                "path": folder.path or f"/{folder.name}",
+                "file_count": count,
+            }
+        )
+    return results

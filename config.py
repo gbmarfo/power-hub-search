@@ -14,11 +14,19 @@ QUERY_CACHE_PATH = os.getenv("QUERY_CACHE_PATH", "data/cache.pkl")
 POWERHUB_STORAGE_PATH = os.getenv("POWERHUB_STORAGE_PATH", "./data/powerhub/files")
 POWERHUB_ENABLED = os.getenv("POWERHUB_ENABLED", "true").lower() in ("1", "true", "yes")
 
-MILVUS_URI = os.getenv("MILVUS_URI", "./data/milvus.db")
+# Prefer POWERHUB_MILVUS_URI. Do not export MILVUS_URI as a filesystem path —
+# pymilvus reads that env var at import time and only accepts http(s) URLs.
+# Default uses embedded Milvus Lite (no Docker). For standalone Milvus:
+#   POWERHUB_MILVUS_URI=http://localhost:19530
+MILVUS_URI = (
+    os.getenv("POWERHUB_MILVUS_URI")
+    or os.getenv("MILVUS_URI")
+    or "./data/milvus.db"
+)
 MILVUS_USER = os.getenv("MILVUS_USER", "")
 MILVUS_PASSWORD = os.getenv("MILVUS_PASSWORD", "")
 MILVUS_DB_NAME = os.getenv("MILVUS_DB_NAME", "default")
-# Milvus Lite (default local URI) supports IVF_FLAT reliably; HNSW works on full Milvus.
+# Milvus Lite (default local file URI) supports IVF_FLAT reliably; use HNSW with full Milvus.
 MILVUS_INDEX_TYPE = os.getenv("MILVUS_INDEX_TYPE", "IVF_FLAT")
 MILVUS_METRIC_TYPE = os.getenv("MILVUS_METRIC_TYPE", "IP")
 MILVUS_HNSW_M = int(os.getenv("MILVUS_HNSW_M", "16"))

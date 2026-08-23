@@ -75,10 +75,15 @@ def _sync_docs(db: Session, org_id: str, folder_id: str | None, rows: list[dict]
     metadata = MetaData()
     table = Table(DOC_TABLE, metadata, autoload_with=engine)
 
+    # Clear prior materializations for this scope and any overlapping file IDs
+    # so re-indexing a folder does not collide with an older whole-vault sync.
+    file_ids = [row["id"] for row in rows]
     if folder_id:
         db.execute(table.delete().where(table.c.folder_id == folder_id))
     else:
         db.execute(table.delete().where(table.c.org_id == org_id))
+    if file_ids:
+        db.execute(table.delete().where(table.c.id.in_(file_ids)))
 
     if rows:
         db.execute(table.insert(), rows)
@@ -92,20 +97,31 @@ def create_index_from_vault(
     org_id: str,
     title: str,
     description: str | None,
-    folder_id: str | None,
+    folder_id: str,
     created_by: str,
 ) -> models.VaultSearchIndexLink:
+    folder = (
+        db.query(models.VaultFolder)
+        .filter_by(id=folder_id, org_id=org_id, is_deleted=False)
+        .first()
+    )
+    if folder is None:
+        raise ValueError("Folder not found. Choose an existing vault folder to index.")
+
     rows = _build_rows(db, org_id, folder_id)
     if not rows:
         raise ValueError(
-            "No documents found to index. Upload files to the vault (or selected folder) first."
+            f"No documents found in “{folder.path or folder.name}”. "
+            "Upload files into that folder (or a subfolder) first."
         )
 
     count = _sync_docs(db, org_id, folder_id, rows)
+    folder_label = folder.path or f"/{folder.name}"
 
     payload = search_schemas.SearchIndexCreate(
         title=title,
-        description=description or f"Power Hub vault index ({count} documents)",
+        description=description
+        or f"Power Hub index of {folder_label} ({count} documents)",
         table_name=DOC_TABLE,
         text_columns="name,path,content,concatenated_text",
         id_col="id",

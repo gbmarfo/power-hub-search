@@ -212,7 +212,16 @@ export const api = {
   indexes() {
     return request<Array<Record<string, unknown>>>("/api/v1/powerhub/indexes");
   },
-  createIndex(payload: { title: string; description?: string; folder_id?: string | null }) {
+  foldersForIndex() {
+    return request<
+      Array<{ id: string; name: string; path: string; file_count: number }>
+    >("/api/v1/powerhub/folders");
+  },
+  createIndex(payload: {
+    title: string;
+    description?: string;
+    folder_id: string;
+  }) {
     return request<Record<string, unknown>>("/api/v1/powerhub/indexes", {
       method: "POST",
       body: JSON.stringify(payload),

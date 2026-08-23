@@ -216,6 +216,42 @@ def remove_group_member(
     return {"message": "removed"}
 
 
+@router.get("/folders", response_model=list[schemas.FolderIndexOption])
+def list_folders_for_indexing(
+    hub: HubUser = Depends(get_hub_user),
+    db: Session = Depends(get_db),
+):
+    """List vault folders with file counts for search-index creation."""
+    hub.require("folders.view")
+    return [
+        schemas.FolderIndexOption(**row)
+        for row in crud.list_folders_with_counts(db, hub.org_id)
+    ]
+
+
+def _index_link_out(db: Session, link: models.VaultSearchIndexLink) -> schemas.SearchIndexLinkOut:
+    folder_name = None
+    folder_path = None
+    if link.folder_id:
+        folder = db.query(models.VaultFolder).filter_by(id=link.folder_id).first()
+        if folder:
+            folder_name = folder.name
+            folder_path = folder.path or f"/{folder.name}"
+    return schemas.SearchIndexLinkOut(
+        id=link.id,
+        title=link.title,
+        description=link.description,
+        folder_id=link.folder_id,
+        folder_name=folder_name,
+        folder_path=folder_path,
+        search_index_id=link.search_index_id,
+        document_count=link.document_count or 0,
+        created_by=link.created_by,
+        created_at=link.created_at,
+        updated_at=link.updated_at,
+    )
+
+
 @router.get("/indexes", response_model=list[schemas.SearchIndexLinkOut])
 def list_search_indexes(hub: HubUser = Depends(get_hub_user), db: Session = Depends(get_db)):
     hub.require("indexes.view")
@@ -225,20 +261,7 @@ def list_search_indexes(hub: HubUser = Depends(get_hub_user), db: Session = Depe
         .order_by(models.VaultSearchIndexLink.created_at.desc())
         .all()
     )
-    return [
-        schemas.SearchIndexLinkOut(
-            id=link.id,
-            title=link.title,
-            description=link.description,
-            folder_id=link.folder_id,
-            search_index_id=link.search_index_id,
-            document_count=link.document_count or 0,
-            created_by=link.created_by,
-            created_at=link.created_at,
-            updated_at=link.updated_at,
-        )
-        for link in links
-    ]
+    return [_index_link_out(db, link) for link in links]
 
 
 @router.post("/indexes", response_model=schemas.SearchIndexLinkOut)
@@ -248,6 +271,11 @@ def create_search_index(
     db: Session = Depends(get_db),
 ):
     hub.require("indexes.create")
+    if not body.folder_id or not str(body.folder_id).strip():
+        raise HTTPException(
+            status_code=400,
+            detail="folder_id is required. Select a vault folder whose files should be indexed.",
+        )
     try:
         link = search_bridge.create_index_from_vault(
             db,
@@ -269,19 +297,9 @@ def create_search_index(
         action="index.create",
         item_type="search_index",
         item_id=link.search_index_id,
-        detail=link.title,
+        detail=f"{link.title} ← {body.folder_id}",
     )
-    return schemas.SearchIndexLinkOut(
-        id=link.id,
-        title=link.title,
-        description=link.description,
-        folder_id=link.folder_id,
-        search_index_id=link.search_index_id,
-        document_count=link.document_count or 0,
-        created_by=link.created_by,
-        created_at=link.created_at,
-        updated_at=link.updated_at,
-    )
+    return _index_link_out(db, link)
 
 
 @router.delete("/indexes/{link_id}")

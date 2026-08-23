@@ -220,7 +220,7 @@ class DashboardOut(BaseModel):
 class SearchIndexCreateRequest(BaseModel):
     title: str
     description: str | None = None
-    folder_id: str | None = None  # None indexes entire org vault
+    folder_id: str  # required — index files from this vault folder (and subfolders)
 
 
 class SearchIndexLinkOut(BaseModel):
@@ -228,11 +228,20 @@ class SearchIndexLinkOut(BaseModel):
     title: str
     description: str | None = None
     folder_id: str | None = None
+    folder_name: str | None = None
+    folder_path: str | None = None
     search_index_id: str
     document_count: int = 0
     created_by: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class FolderIndexOption(BaseModel):
+    id: str
+    name: str
+    path: str
+    file_count: int = 0
 
 
 class InvitationCreate(BaseModel):
