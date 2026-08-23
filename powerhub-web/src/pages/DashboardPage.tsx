@@ -85,8 +85,8 @@ export function DashboardPage() {
               <Link className="btn" to="/admin/users">Users</Link>
               <Link className="btn" to="/admin/settings">Sign-in settings</Link>
               <Link className="btn" to="/admin/audit">Audit log</Link>
-              <Link className="btn" to="/indexes">Manage indexes</Link>
-              <Link className="btn primary" to="/indexes/playground">Search playground</Link>
+              <Link className="btn" to="/indexes">Indexes</Link>
+              <Link className="btn primary" to="/indexes/playground">Search</Link>
             </div>
           </section>
         )}

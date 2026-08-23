@@ -136,13 +136,13 @@ export function IndexesPage() {
     <div>
       <div className="page-head-row">
         <div>
-          <h1 className="page-title">Manage indexes</h1>
+          <h1 className="page-title">Indexes</h1>
           <p className="page-sub">
-            Create and maintain vault search indexes registered in power-hub-search.
+            Create and sync vault folders registered in power-hub-search.
           </p>
         </div>
         <Link className="btn primary" to="/indexes/playground">
-          Open search playground
+          Search
         </Link>
       </div>
 

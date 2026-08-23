@@ -9,15 +9,9 @@ type NavItem = {
   end?: boolean;
 };
 
-type NavSection = {
-  title: string;
-  items: NavItem[];
-};
-
-function NavSectionBlock({ title, items }: NavSection) {
+function NavItems({ items }: { items: NavItem[] }) {
   return (
-    <div className="nav-section">
-      <p className="nav-section-title">{title}</p>
+    <>
       {items.map((item) => (
         <NavLink
           key={item.to}
@@ -28,9 +22,30 @@ function NavSectionBlock({ title, items }: NavSection) {
           {item.label}
         </NavLink>
       ))}
-    </div>
+    </>
   );
 }
+
+const PRIMARY_NAV: NavItem[] = [
+  { to: "/", label: "Home", end: true },
+  { to: "/files", label: "Files" },
+  { to: "/shares", label: "Shares" },
+  { to: "/indexes/playground", label: "Search" },
+  { to: "/indexes", label: "Indexes", end: true },
+  { to: "/groups", label: "Groups" },
+  { to: "/recycle", label: "Recycle bin" },
+];
+
+const ACCOUNT_NAV: NavItem[] = [
+  { to: "/notifications", label: "Notifications" },
+  { to: "/profile", label: "Profile" },
+];
+
+const ADMIN_NAV: NavItem[] = [
+  { to: "/admin/users", label: "Users" },
+  { to: "/admin/settings", label: "Settings" },
+  { to: "/admin/audit", label: "Audit log" },
+];
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, logout, can } = useAuth();
@@ -53,51 +68,6 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const pct = Math.min(100, Math.round((used / Math.max(quota, 1)) * 100));
 
-  const navSections: NavSection[] = [
-    {
-      title: "Overview",
-      items: [{ to: "/", label: "Home", end: true }],
-    },
-    {
-      title: "Library",
-      items: [
-        { to: "/files", label: "Files" },
-        { to: "/recycle", label: "Recycle bin" },
-      ],
-    },
-    {
-      title: "Search",
-      items: [
-        { to: "/search", label: "Library search" },
-        { to: "/indexes/playground", label: "Search playground" },
-        { to: "/indexes", label: "Manage indexes", end: true },
-      ],
-    },
-    {
-      title: "Collaboration",
-      items: [
-        { to: "/shares", label: "My shares" },
-        { to: "/groups", label: "Groups" },
-      ],
-    },
-    {
-      title: "Account",
-      items: [
-        { to: "/notifications", label: "Notifications" },
-        { to: "/profile", label: "Profile" },
-      ],
-    },
-  ];
-
-  const adminSection: NavSection = {
-    title: "Administration",
-    items: [
-      { to: "/admin/users", label: "Users" },
-      { to: "/admin/settings", label: "Settings" },
-      { to: "/admin/audit", label: "Audit log" },
-    ],
-  };
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -108,22 +78,35 @@ export function Layout({ children }: { children: ReactNode }) {
             <p className="brand-sub">Document vault</p>
           </div>
         </div>
-        <nav className="nav">
-          {navSections.map((section) => (
-            <NavSectionBlock key={section.title} {...section} />
-          ))}
-          {can("users.manage") && <NavSectionBlock {...adminSection} />}
+
+        <nav className="nav nav-main" aria-label="Main">
+          <NavItems items={PRIMARY_NAV} />
         </nav>
-        <div className="storage-meter">
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
-            <span>Storage</span>
-            <span>{pct}%</span>
-          </div>
-          <div className="bar">
-            <div className="fill" style={{ width: `${pct}%` }} />
+
+        <div className="sidebar-foot">
+          <nav className="nav nav-foot" aria-label="Account">
+            <NavItems items={ACCOUNT_NAV} />
+          </nav>
+
+          {can("users.manage") && (
+            <nav className="nav nav-admin" aria-label="Administration">
+              <p className="nav-admin-label">Admin</p>
+              <NavItems items={ADMIN_NAV} />
+            </nav>
+          )}
+
+          <div className="storage-meter">
+            <div className="storage-meter-head">
+              <span>Storage</span>
+              <span>{pct}%</span>
+            </div>
+            <div className="bar">
+              <div className="fill" style={{ width: `${pct}%` }} />
+            </div>
           </div>
         </div>
       </aside>
+
       <div className="main">
         <header className="topbar">
           <form className="search-box" onSubmit={onSearch}>
@@ -135,7 +118,14 @@ export function Layout({ children }: { children: ReactNode }) {
             />
           </form>
           <span className="pill">{user?.full_name || user?.username}</span>
-          <button className="btn ghost" type="button" onClick={() => { logout(); navigate("/login"); }}>
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={() => {
+              logout();
+              navigate("/login");
+            }}
+          >
             Sign out
           </button>
         </header>

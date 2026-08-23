@@ -103,13 +103,13 @@ export function IndexPlaygroundPage() {
     <div className="playground-page">
       <div className="page-head-row">
         <div>
-          <h1 className="page-title">Search playground</h1>
+          <h1 className="page-title">Search</h1>
           <p className="page-sub">
-            Test power-hub-search modes against your vault indexes.
+            Query indexed vault folders with power-hub-search.
           </p>
         </div>
         <Link className="btn ghost" to="/indexes">
-          Manage indexes
+          Indexes
         </Link>
       </div>
 
