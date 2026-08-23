@@ -4,10 +4,12 @@ from sqlalchemy.orm import Session
 from auth.authentication import get_current_user
 from database import models, schemas, search_crud
 from database.database import engine, get_db
+from database.migrate import run_migrations
 from services.text_search import TextSearch
 from services.vector_search import VectorSearch
 
 models.Base.metadata.create_all(bind=engine)
+run_migrations(engine)
 
 router = APIRouter()
 
@@ -21,9 +23,9 @@ def _run_search(
     org_id: str | None = None,
     metadata_filters: dict[str, str] | None = None,
     vector_weight: float = 0.5,
+    embedding_model: str | None = None,
 ) -> list[dict]:
     text_search = TextSearch(index_file=index_id)
-    vector_search = VectorSearch(file_id=index_id, org_id=org_id)
 
     if mode == schemas.SearchMode.ranked_naive:
         return text_search.ranked_search(query)
@@ -35,6 +37,13 @@ def _run_search(
         return text_search.boolean_search(query)
     if mode == schemas.SearchMode.fuzzy:
         return text_search.fuzzy_search(query)
+
+    vector_search = VectorSearch(
+        file_id=index_id,
+        org_id=org_id,
+        embedding_model=embedding_model,
+    )
+
     if mode == schemas.SearchMode.similarity:
         return vector_search.similarity_search(
             query,
@@ -83,6 +92,7 @@ async def unified_search(
             org_id=org_id,
             metadata_filters=body.metadata_filters,
             vector_weight=body.vector_weight,
+            embedding_model=index.embedding_model,
         )
         if body.mode != schemas.SearchMode.similarity:
             results = results[body.offset : body.offset + body.top_k]

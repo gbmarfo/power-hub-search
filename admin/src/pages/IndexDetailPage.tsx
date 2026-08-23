@@ -49,10 +49,14 @@ export function IndexDetailPage() {
               <dd><code>{index.global_id}</code></dd>
               <dt>Organization</dt>
               <dd><code>{index.org_id}</code></dd>
+              <dt>Source</dt>
+              <dd><code>{index.source ?? "sql"}</code></dd>
               <dt>Source table</dt>
               <dd>
                 <code>
-                  {index.schema_name}.{index.table_name}
+                  {index.source === "powerhub"
+                    ? index.table_name
+                    : `${index.schema_name ?? "dbo"}.${index.table_name}`}
                 </code>
               </dd>
               <dt>ID column</dt>

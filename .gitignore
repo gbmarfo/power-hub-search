@@ -8,3 +8,6 @@ __pycache__/
 data/
 *.db
 models/*.pth
+powerhub-web/node_modules/
+powerhub-web/dist/
+*.db

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from auth.authentication import get_current_user
 from database import schemas, models, search_crud
 from database.database import get_db
+from powerhub import search_bridge
 from services.text_search import TextSearch
 from services.vector_search import VectorSearch
 
@@ -34,6 +35,7 @@ def create_index_from_db(
     vector_search = VectorSearch(
         file_id=search_index_id,
         org_id=search_index_record.org_id,
+        embedding_model=search_index_record.embedding_model,
     )
     inserted = vector_search.create_index(
         data=[
@@ -43,6 +45,8 @@ def create_index_from_db(
         text_column="concatenated_text",
         id_column=id_column,
         org_id=search_index_record.org_id,
+        chunk_size=search_index_record.chunk_size or 0,
+        chunk_overlap=search_index_record.chunk_overlap or 0,
     )
 
     return {
@@ -80,7 +84,11 @@ def get_index(
     index = search_crud.get_search_index(db, index_id)
     if index is None:
         raise HTTPException(status_code=404, detail="Search index not found")
-    vector_stats = VectorSearch(file_id=index_id, org_id=index.org_id).get_stats()
+    vector_stats = VectorSearch(
+        file_id=index_id,
+        org_id=index.org_id,
+        embedding_model=index.embedding_model,
+    ).get_stats()
     return {
         "index": schemas.SearchIndex.model_validate(index).model_dump(),
         "vector_stats": vector_stats,
@@ -97,7 +105,13 @@ def delete_index(
     if index is None:
         raise HTTPException(status_code=404, detail="Search index not found")
 
-    VectorSearch(file_id=index_id, org_id=index.org_id).drop_index()
+    VectorSearch(
+        file_id=index_id,
+        org_id=index.org_id,
+        embedding_model=index.embedding_model,
+    ).drop_index()
+    if index.source == "powerhub":
+        search_bridge.cleanup_powerhub_search_index(db, index_id, index.org_id or "")
     deleted = search_crud.delete_search_index(db, index_id)
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete index metadata")

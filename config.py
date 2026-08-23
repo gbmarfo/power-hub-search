@@ -6,15 +6,37 @@ load_dotenv()
 BASE_EMBEDDING_MODEL = os.getenv(
     "BASE_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
 )
-INDEX_DB_URL = os.getenv("INDEX_DB_URL")
+DEFAULT_CHUNK_SIZE = int(os.getenv("DEFAULT_CHUNK_SIZE", "1000"))
+DEFAULT_CHUNK_OVERLAP = int(os.getenv("DEFAULT_CHUNK_OVERLAP", "200"))
+
+EMBEDDING_MODEL_CHOICES = [
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "sentence-transformers/all-mpnet-base-v2",
+    "BAAI/bge-small-en-v1.5",
+    "BAAI/bge-base-en-v1.5",
+]
+INDEX_DB_URL = os.getenv("INDEX_DB_URL", "sqlite:///./data/powerhub.db")
 INDEX_FOLDER_PATH = os.getenv("INDEX_FOLDER_PATH", "./data")
 QUERY_CACHE_PATH = os.getenv("QUERY_CACHE_PATH", "data/cache.pkl")
 
-MILVUS_URI = os.getenv("MILVUS_URI", "http://localhost:19530")
+# Power Hub document vault
+POWERHUB_STORAGE_PATH = os.getenv("POWERHUB_STORAGE_PATH", "./data/powerhub/files")
+POWERHUB_ENABLED = os.getenv("POWERHUB_ENABLED", "true").lower() in ("1", "true", "yes")
+
+# Prefer POWERHUB_MILVUS_URI. Do not export MILVUS_URI as a filesystem path —
+# pymilvus reads that env var at import time and only accepts http(s) URLs.
+# Default uses embedded Milvus Lite (no Docker). For standalone Milvus:
+#   POWERHUB_MILVUS_URI=http://localhost:19530
+MILVUS_URI = (
+    os.getenv("POWERHUB_MILVUS_URI")
+    or os.getenv("MILVUS_URI")
+    or "./data/milvus.db"
+)
 MILVUS_USER = os.getenv("MILVUS_USER", "")
 MILVUS_PASSWORD = os.getenv("MILVUS_PASSWORD", "")
 MILVUS_DB_NAME = os.getenv("MILVUS_DB_NAME", "default")
-MILVUS_INDEX_TYPE = os.getenv("MILVUS_INDEX_TYPE", "HNSW")
+# Milvus Lite (default local file URI) supports IVF_FLAT reliably; use HNSW with full Milvus.
+MILVUS_INDEX_TYPE = os.getenv("MILVUS_INDEX_TYPE", "IVF_FLAT")
 MILVUS_METRIC_TYPE = os.getenv("MILVUS_METRIC_TYPE", "IP")
 MILVUS_HNSW_M = int(os.getenv("MILVUS_HNSW_M", "16"))
 MILVUS_HNSW_EF_CONSTRUCTION = int(os.getenv("MILVUS_HNSW_EF_CONSTRUCTION", "256"))
@@ -30,7 +52,7 @@ CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:8000",
     ).split(",")
     if origin.strip()
 ]
